@@ -61,7 +61,7 @@ defmodule TimelessUIWeb.CanvasLive do
        assign(socket,
          history: history,
          canvas: canvas,
-         selected_id: nil,
+         selected_ids: MapSet.new(),
          mode: :select,
          place_type: :rect,
          connect_from: nil,
@@ -99,7 +99,7 @@ defmodule TimelessUIWeb.CanvasLive do
     assigns = assign(assigns, type_labels: @type_labels)
 
     ~H"""
-    <div class={"canvas-container#{if selected_object(@selected_id, @canvas) != nil, do: " canvas-container--panel-open", else: ""}"}>
+    <div class={"canvas-container#{if sole_selected_object(@selected_ids, @canvas) != nil, do: " canvas-container--panel-open", else: ""}"}>
       <div class="canvas-toolbar">
         <span :if={!@can_edit} class="canvas-toolbar__badge canvas-toolbar__badge--readonly">
           View Only
@@ -174,21 +174,21 @@ defmodule TimelessUIWeb.CanvasLive do
         <button
           phx-click="send_to_back"
           class="canvas-toolbar__btn"
-          disabled={!@can_edit || is_nil(@selected_id)}
+          disabled={!@can_edit || MapSet.size(@selected_ids) == 0}
         >
           Back
         </button>
         <button
           phx-click="bring_to_front"
           class="canvas-toolbar__btn"
-          disabled={!@can_edit || is_nil(@selected_id)}
+          disabled={!@can_edit || MapSet.size(@selected_ids) == 0}
         >
           Front
         </button>
         <button
           phx-click="delete_selected"
           class="canvas-toolbar__btn canvas-toolbar__btn--danger"
-          disabled={!@can_edit || is_nil(@selected_id)}
+          disabled={!@can_edit || MapSet.size(@selected_ids) == 0}
         >
           Delete
         </button>
@@ -250,14 +250,14 @@ defmodule TimelessUIWeb.CanvasLive do
           connection={conn}
           source={@canvas.elements[conn.source_id]}
           target={@canvas.elements[conn.target_id]}
-          selected={conn.id == @selected_id}
+          selected={conn.id in @selected_ids}
         />
 
         <.canvas_element
           :for={element <- sorted_elements(@canvas.elements)}
           :key={element.id}
           element={element}
-          selected={element.id == @selected_id}
+          selected={element.id in @selected_ids}
           graph_points={graph_points_for(element, @graph_data)}
           graph_value={graph_value_for(element, @graph_data)}
           stream_entries={stream_entries_for(element, @stream_data)}
@@ -265,8 +265,7 @@ defmodule TimelessUIWeb.CanvasLive do
       </svg>
 
       <.properties_panel
-        selected={selected_object(@selected_id, @canvas)}
-        selected_id={@selected_id}
+        selected={sole_selected_object(@selected_ids, @canvas)}
         canvas={@canvas}
       />
 
@@ -385,17 +384,16 @@ defmodule TimelessUIWeb.CanvasLive do
     """
   end
 
-  defp selected_object(nil, _canvas), do: nil
-
-  defp selected_object("el-" <> _ = id, canvas) do
-    Map.get(canvas.elements, id)
+  defp sole_selected_object(selected_ids, canvas) do
+    case MapSet.to_list(selected_ids) do
+      [id] -> find_object(id, canvas)
+      _ -> nil
+    end
   end
 
-  defp selected_object("conn-" <> _ = id, canvas) do
-    Map.get(canvas.connections, id)
-  end
-
-  defp selected_object(_id, _canvas), do: nil
+  defp find_object("el-" <> _ = id, canvas), do: Map.get(canvas.elements, id)
+  defp find_object("conn-" <> _ = id, canvas), do: Map.get(canvas.connections, id)
+  defp find_object(_id, _canvas), do: nil
 
   defp zoom_percentage(%ViewBox{width: width}) do
     round(1200.0 / width * 100)
@@ -498,7 +496,7 @@ defmodule TimelessUIWeb.CanvasLive do
         {:noreply, assign(socket, connect_from: nil)}
 
       :select ->
-        {:noreply, assign(socket, selected_id: nil)}
+        {:noreply, assign(socket, selected_ids: MapSet.new())}
     end
   end
 
@@ -523,17 +521,40 @@ defmodule TimelessUIWeb.CanvasLive do
         end)
 
       _ ->
-        {:noreply, assign(socket, selected_id: id)}
+        {:noreply, assign(socket, selected_ids: MapSet.new([id]))}
     end
   end
 
+  def handle_event("element:shift_select", %{"id" => id}, socket) do
+    selected_ids = socket.assigns.selected_ids
+
+    selected_ids =
+      if MapSet.member?(selected_ids, id),
+        do: MapSet.delete(selected_ids, id),
+        else: MapSet.put(selected_ids, id)
+
+    {:noreply, assign(socket, selected_ids: selected_ids)}
+  end
+
+  def handle_event("marquee:select", %{"ids" => ids}, socket) do
+    {:noreply, assign(socket, selected_ids: MapSet.new(ids))}
+  end
+
   def handle_event("connection:select", %{"id" => id}, socket) do
-    {:noreply, assign(socket, selected_id: id)}
+    {:noreply, assign(socket, selected_ids: MapSet.new([id]))}
   end
 
   def handle_event("element:move", %{"id" => id, "dx" => dx, "dy" => dy}, socket) do
     require_edit(socket, fn ->
-      canvas = Canvas.move_element(socket.assigns.canvas, id, dx / 1.0, dy / 1.0)
+      selected_ids = socket.assigns.selected_ids
+
+      canvas =
+        if MapSet.member?(selected_ids, id) and MapSet.size(selected_ids) > 1 do
+          Canvas.move_elements(socket.assigns.canvas, MapSet.to_list(selected_ids), dx / 1.0, dy / 1.0)
+        else
+          Canvas.move_element(socket.assigns.canvas, id, dx / 1.0, dy / 1.0)
+        end
+
       {:noreply, push_canvas(socket, canvas) |> schedule_autosave()}
     end)
   end
@@ -545,20 +566,18 @@ defmodule TimelessUIWeb.CanvasLive do
     end)
   end
 
-  def handle_event("element:nudge", %{"id" => id_param, "dx" => dx, "dy" => dy}, socket) do
+  def handle_event("element:nudge", %{"dx" => dx, "dy" => dy}, socket) do
     require_edit(socket, fn ->
-      id = if id_param == "__selected__", do: socket.assigns.selected_id, else: id_param
+      selected_ids = socket.assigns.selected_ids
+      element_ids = Enum.filter(selected_ids, &String.starts_with?(&1, "el-"))
 
-      case id do
-        nil ->
+      case element_ids do
+        [] ->
           {:noreply, socket}
 
-        "el-" <> _ ->
-          canvas = Canvas.move_element(socket.assigns.canvas, id, dx / 1.0, dy / 1.0)
+        ids ->
+          canvas = Canvas.move_elements(socket.assigns.canvas, ids, dx / 1.0, dy / 1.0)
           {:noreply, push_canvas(socket, canvas) |> schedule_autosave()}
-
-        _ ->
-          {:noreply, socket}
       end
     end)
   end
@@ -583,65 +602,91 @@ defmodule TimelessUIWeb.CanvasLive do
 
   def handle_event("send_to_back", _params, socket) do
     require_edit(socket, fn ->
-      case socket.assigns.selected_id do
-        "el-" <> _ = id ->
+      element_ids =
+        socket.assigns.selected_ids
+        |> Enum.filter(&String.starts_with?(&1, "el-"))
+
+      case element_ids do
+        [] ->
+          {:noreply, socket}
+
+        ids ->
           min_z =
             socket.assigns.canvas.elements |> Map.values() |> Enum.map(& &1.z_index) |> Enum.min()
 
-          canvas = Canvas.update_element(socket.assigns.canvas, id, %{z_index: min_z - 1})
-          {:noreply, push_canvas(socket, canvas) |> schedule_autosave()}
+          canvas =
+            Enum.with_index(ids)
+            |> Enum.reduce(socket.assigns.canvas, fn {id, i}, acc ->
+              Canvas.update_element(acc, id, %{z_index: min_z - length(ids) + i})
+            end)
 
-        _ ->
-          {:noreply, socket}
+          {:noreply, push_canvas(socket, canvas) |> schedule_autosave()}
       end
     end)
   end
 
   def handle_event("bring_to_front", _params, socket) do
     require_edit(socket, fn ->
-      case socket.assigns.selected_id do
-        "el-" <> _ = id ->
+      element_ids =
+        socket.assigns.selected_ids
+        |> Enum.filter(&String.starts_with?(&1, "el-"))
+
+      case element_ids do
+        [] ->
+          {:noreply, socket}
+
+        ids ->
           max_z =
             socket.assigns.canvas.elements |> Map.values() |> Enum.map(& &1.z_index) |> Enum.max()
 
-          canvas = Canvas.update_element(socket.assigns.canvas, id, %{z_index: max_z + 1})
-          {:noreply, push_canvas(socket, canvas) |> schedule_autosave()}
+          canvas =
+            Enum.with_index(ids)
+            |> Enum.reduce(socket.assigns.canvas, fn {id, i}, acc ->
+              Canvas.update_element(acc, id, %{z_index: max_z + 1 + i})
+            end)
 
-        _ ->
-          {:noreply, socket}
+          {:noreply, push_canvas(socket, canvas) |> schedule_autosave()}
       end
     end)
   end
 
   def handle_event("delete_selected", _params, socket) do
     require_edit(socket, fn ->
-      case socket.assigns.selected_id do
-        nil ->
-          {:noreply, socket}
+      selected_ids = socket.assigns.selected_ids
 
-        "conn-" <> _ = id ->
-          canvas = Canvas.remove_connection(socket.assigns.canvas, id)
-
-          {:noreply,
-           push_canvas(socket, canvas) |> assign(selected_id: nil) |> schedule_autosave()}
-
-        "el-" <> _ = id ->
+      if MapSet.size(selected_ids) == 0 do
+        {:noreply, socket}
+      else
+        # Unregister streams for elements being deleted
+        for id <- selected_ids, String.starts_with?(id, "el-") do
           el = socket.assigns.canvas.elements[id]
 
           if el && el.type in [:log_stream, :trace_stream] do
             StreamManager.unregister_stream(id)
           end
+        end
 
-          canvas = Canvas.remove_element(socket.assigns.canvas, id)
+        # Remove connections first, then elements
+        conn_ids = Enum.filter(selected_ids, &String.starts_with?(&1, "conn-"))
+        element_ids = Enum.filter(selected_ids, &String.starts_with?(&1, "el-"))
 
-          {:noreply,
-           push_canvas(socket, canvas) |> assign(selected_id: nil) |> schedule_autosave()}
+        canvas =
+          Enum.reduce(conn_ids, socket.assigns.canvas, fn id, acc ->
+            Canvas.remove_connection(acc, id)
+          end)
+
+        canvas = Canvas.remove_elements(canvas, element_ids)
+
+        {:noreply,
+         push_canvas(socket, canvas)
+         |> assign(selected_ids: MapSet.new())
+         |> schedule_autosave()}
       end
     end)
   end
 
   def handle_event("canvas:deselect", _params, socket) do
-    {:noreply, assign(socket, selected_id: nil, connect_from: nil)}
+    {:noreply, assign(socket, selected_ids: MapSet.new(), connect_from: nil)}
   end
 
   def handle_event("toggle_share", _params, socket) do
@@ -655,14 +700,14 @@ defmodule TimelessUIWeb.CanvasLive do
   def handle_event("canvas:undo", _params, socket) do
     require_edit(socket, fn ->
       history = History.undo(socket.assigns.history)
-      {:noreply, assign(socket, history: history, canvas: history.present, selected_id: nil)}
+      {:noreply, assign(socket, history: history, canvas: history.present, selected_ids: MapSet.new())}
     end)
   end
 
   def handle_event("canvas:redo", _params, socket) do
     require_edit(socket, fn ->
       history = History.redo(socket.assigns.history)
-      {:noreply, assign(socket, history: history, canvas: history.present, selected_id: nil)}
+      {:noreply, assign(socket, history: history, canvas: history.present, selected_ids: MapSet.new())}
     end)
   end
 
@@ -755,7 +800,7 @@ defmodule TimelessUIWeb.CanvasLive do
             history = History.new(canvas)
 
             socket =
-              assign(socket, history: history, canvas: canvas, selected_id: nil)
+              assign(socket, history: history, canvas: canvas, selected_ids: MapSet.new())
               |> register_elements()
 
             {:noreply, socket}
