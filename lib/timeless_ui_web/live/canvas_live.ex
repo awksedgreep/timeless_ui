@@ -101,6 +101,18 @@ defmodule TimelessUIWeb.CanvasLive do
     ~H"""
     <div class={"canvas-container#{if sole_selected_object(@selected_ids, @canvas) != nil, do: " canvas-container--panel-open", else: ""}"}>
       <div class="canvas-toolbar">
+        <span class="canvas-toolbar__logo" title="Timeless">
+          <svg width="28" height="16" viewBox="0 0 28 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path
+              d="M8 2C4.5 2 2 4.7 2 8s2.5 6 6 6c2.2 0 4-1.2 5.5-3L14 10.5l.5.5c1.5 1.8 3.3 3 5.5 3 3.5 0 6-2.7 6-6s-2.5-6-6-6c-2.2 0-4 1.2-5.5 3L14 5.5 13.5 5C12 3.2 10.2 2 8 2z"
+              stroke="#6366f1"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </span>
+        <span class="canvas-toolbar__sep"></span>
         <span :if={!@can_edit} class="canvas-toolbar__badge canvas-toolbar__badge--readonly">
           View Only
         </span>

@@ -99,6 +99,16 @@ defmodule TimelessUIWeb.CanvasComponents do
       stroke={@element.color}
       stroke-width="1"
       style="filter: brightness(0.7)"
+      pointer-events="none"
+    />
+    <%!-- Transparent hit rect covering full cylinder for drag/click --%>
+    <rect
+      x={@element.x}
+      y={@element.y}
+      width={@element.width}
+      height={@element.height}
+      fill="transparent"
+      class="canvas-element__hit"
     />
     """
   end

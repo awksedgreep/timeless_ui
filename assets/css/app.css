@@ -81,6 +81,12 @@ body:has(.canvas-container) {
   stroke-width: 2;
 }
 
+.canvas-element--selected .canvas-element__body-rect,
+.canvas-element--selected .canvas-element__body-bottom {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
 .canvas-element__body {
   transition: filter 0.15s ease;
 }
@@ -210,6 +216,13 @@ body:has(.canvas-container) {
 .canvas-toolbar__btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+.canvas-toolbar__logo {
+  display: flex;
+  align-items: center;
+  padding: 2px 4px;
+  cursor: default;
 }
 
 .canvas-toolbar__sep {

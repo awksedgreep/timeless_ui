@@ -599,32 +599,51 @@ const CanvasHook = {
 
     const ids = [];
     this.svg.querySelectorAll("[data-element-id]").forEach((group) => {
-      const body = group.querySelector(".canvas-element__body");
-      if (!body) return;
-
-      let ex, ey, ew, eh;
-      if (body.tagName === "ellipse") {
-        const cx = parseFloat(body.getAttribute("cx"));
-        const cy = parseFloat(body.getAttribute("cy"));
-        const rx = parseFloat(body.getAttribute("rx"));
-        const ry = parseFloat(body.getAttribute("ry"));
-        ex = cx - rx;
-        ey = cy - ry;
-        ew = rx * 2;
-        eh = ry * 2;
-      } else {
-        ex = parseFloat(body.getAttribute("x"));
-        ey = parseFloat(body.getAttribute("y"));
-        ew = parseFloat(body.getAttribute("width"));
-        eh = parseFloat(body.getAttribute("height"));
-      }
+      const bounds = this.getElementBounds(group);
+      if (!bounds) return;
 
       // Check intersection (any overlap)
-      if (ex + ew > minX && ex < maxX && ey + eh > minY && ey < maxY) {
+      if (
+        bounds.x + bounds.w > minX &&
+        bounds.x < maxX &&
+        bounds.y + bounds.h > minY &&
+        bounds.y < maxY
+      ) {
         ids.push(group.dataset.elementId);
       }
     });
     return ids;
+  },
+
+  getElementBounds(group) {
+    // For database (cylinder): use body-rect which spans the full width, plus ellipse caps
+    const bodyRect = group.querySelector(".canvas-element__body-rect");
+    if (bodyRect) {
+      const x = parseFloat(bodyRect.getAttribute("x"));
+      const y = parseFloat(bodyRect.getAttribute("y")) - 15;
+      const w = parseFloat(bodyRect.getAttribute("width"));
+      const h = parseFloat(bodyRect.getAttribute("height")) + 30;
+      return { x, y, w, h };
+    }
+
+    const body = group.querySelector(".canvas-element__body");
+    if (!body) return null;
+
+    if (body.tagName === "rect") {
+      return {
+        x: parseFloat(body.getAttribute("x")),
+        y: parseFloat(body.getAttribute("y")),
+        w: parseFloat(body.getAttribute("width")),
+        h: parseFloat(body.getAttribute("height")),
+      };
+    }
+
+    // Fallback for ellipse-only elements
+    const cx = parseFloat(body.getAttribute("cx"));
+    const cy = parseFloat(body.getAttribute("cy"));
+    const rx = parseFloat(body.getAttribute("rx"));
+    const ry = parseFloat(body.getAttribute("ry"));
+    return { x: cx - rx, y: cy - ry, w: rx * 2, h: ry * 2 };
   },
 
   resizeElementVisual(id, width, height) {
