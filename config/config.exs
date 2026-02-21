@@ -65,6 +65,10 @@ config :logger, :default_formatter,
 # Configures Swoosh for email
 config :timeless_ui, TimelessUI.Mailer, adapter: Swoosh.Adapters.Local
 
+# Disable OTLP span export -- we consume traces, we don't export them
+config :opentelemetry,
+  traces_exporter: :none
+
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason
 
