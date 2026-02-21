@@ -10,6 +10,7 @@ defmodule TimelessUIWeb.CanvasComponents do
   attr :selected, :boolean, default: false
   attr :graph_points, :string, default: ""
   attr :graph_value, :string, default: nil
+  attr :stream_entries, :list, default: []
 
   def canvas_element(assigns) do
     assigns = assign(assigns, status_color: status_color(assigns.element.status))
@@ -19,10 +20,15 @@ defmodule TimelessUIWeb.CanvasComponents do
       class={"canvas-element#{if @selected, do: " canvas-element--selected", else: ""}"}
       data-element-id={@element.id}
     >
-      <.element_body element={@element} graph_points={@graph_points} graph_value={@graph_value} />
+      <.element_body
+        element={@element}
+        graph_points={@graph_points}
+        graph_value={@graph_value}
+        stream_entries={@stream_entries}
+      />
       <.element_icon element={@element} />
       <text
-        :if={@element.type != :graph}
+        :if={@element.type not in [:graph, :log_stream, :trace_stream]}
         x={@element.x + @element.width / 2}
         y={@element.y + @element.height - 16}
         text-anchor="middle"
@@ -94,6 +100,135 @@ defmodule TimelessUIWeb.CanvasComponents do
       stroke-width="1"
       style="filter: brightness(0.7)"
     />
+    """
+  end
+
+  defp element_body(%{element: %{type: :log_stream}} = assigns) do
+    level_filter = Map.get(assigns.element.meta, "level", "all")
+
+    log_title =
+      case assigns.element.label do
+        nil -> "Logs"
+        "" -> "Logs"
+        label -> "#{label} | #{level_filter}"
+      end
+
+    rows = Enum.take(assigns.stream_entries, 4)
+
+    assigns = assign(assigns, log_title: log_title, rows: rows)
+
+    ~H"""
+    <rect
+      x={@element.x}
+      y={@element.y}
+      width={@element.width}
+      height={@element.height}
+      rx="4"
+      ry="4"
+      fill="#0f172a"
+      class="canvas-element__body"
+    />
+    <clipPath id={"log-clip-#{@element.id}"}>
+      <rect x={@element.x} y={@element.y} width={@element.width} height={@element.height} rx="4" />
+    </clipPath>
+    <text
+      x={@element.x + 4}
+      y={@element.y + 10}
+      fill="#94a3b8"
+      font-size="8"
+      clip-path={"url(#log-clip-#{@element.id})"}
+    >
+      {@log_title}
+    </text>
+    <text
+      :for={{entry, i} <- Enum.with_index(@rows)}
+      x={@element.x + 4}
+      y={@element.y + 24 + i * 14}
+      fill={log_level_color(entry.level)}
+      font-size="9"
+      font-family="monospace"
+      clip-path={"url(#log-clip-#{@element.id})"}
+    >
+      {format_log_entry(entry)}
+    </text>
+    <text
+      :if={@rows == []}
+      x={@element.x + @element.width / 2}
+      y={@element.y + @element.height / 2 + 4}
+      text-anchor="middle"
+      fill="#475569"
+      font-size="9"
+    >
+      Waiting for logs...
+    </text>
+    """
+  end
+
+  defp element_body(%{element: %{type: :trace_stream}} = assigns) do
+    service_filter = Map.get(assigns.element.meta, "service", "all")
+
+    trace_title =
+      case assigns.element.label do
+        nil -> "Traces"
+        "" -> "Traces"
+        label -> "#{label} | #{service_filter}"
+      end
+
+    rows = Enum.take(assigns.stream_entries, 4)
+
+    assigns = assign(assigns, trace_title: trace_title, rows: rows)
+
+    ~H"""
+    <rect
+      x={@element.x}
+      y={@element.y}
+      width={@element.width}
+      height={@element.height}
+      rx="4"
+      ry="4"
+      fill="#0f172a"
+      class="canvas-element__body"
+    />
+    <clipPath id={"trace-clip-#{@element.id}"}>
+      <rect
+        x={@element.x}
+        y={@element.y}
+        width={@element.width}
+        height={@element.height}
+        rx="4"
+      />
+    </clipPath>
+    <text
+      x={@element.x + 4}
+      y={@element.y + 10}
+      fill="#94a3b8"
+      font-size="8"
+      clip-path={"url(#trace-clip-#{@element.id})"}
+    >
+      {@trace_title}
+    </text>
+    <text
+      :for={{span, i} <- Enum.with_index(@rows)}
+      x={@element.x + 4}
+      y={@element.y + 24 + i * 14}
+      font-size="9"
+      font-family="monospace"
+      clip-path={"url(#trace-clip-#{@element.id})"}
+    >
+      <tspan fill="#e2e8f0">{span.name}</tspan>
+      <tspan dx="6" fill={duration_color(span.duration_ns)}>{format_duration(span.duration_ns)}</tspan>
+      <tspan dx="6" fill={span_status_color(span.status)}>{span_status_label(span.status)}</tspan>
+    </text>
+    <text
+      :if={@rows == []}
+      x={@element.x + @element.width / 2}
+      y={@element.y + @element.height / 2 + 4}
+      text-anchor="middle"
+      fill="#475569"
+      font-size="9"
+    >
+      Waiting for traces...
+    </text>
     """
   end
 
@@ -199,6 +334,45 @@ defmodule TimelessUIWeb.CanvasComponents do
   defp element_icon(%{element: %{type: :rect}} = assigns), do: ~H""
   defp element_icon(%{element: %{type: :database}} = assigns), do: ~H""
   defp element_icon(%{element: %{type: :graph}} = assigns), do: ~H""
+
+  defp element_icon(%{element: %{type: :log_stream}} = assigns) do
+    assigns =
+      assign(assigns,
+        cx: assigns.element.x + assigns.element.width / 2,
+        cy: assigns.element.y + assigns.element.height / 2 - 8
+      )
+
+    ~H"""
+    <g
+      class="canvas-element__icon"
+      transform={"translate(#{@cx}, #{@cy}) scale(1.2) translate(-8, -8)"}
+    >
+      <line x1="2" y1="3" x2="14" y2="3" stroke="white" stroke-width="1.5" opacity="0.9" />
+      <line x1="2" y1="7" x2="12" y2="7" stroke="white" stroke-width="1.5" opacity="0.9" />
+      <line x1="2" y1="11" x2="10" y2="11" stroke="white" stroke-width="1.5" opacity="0.9" />
+      <line x1="2" y1="15" x2="13" y2="15" stroke="white" stroke-width="1.5" opacity="0.9" />
+    </g>
+    """
+  end
+
+  defp element_icon(%{element: %{type: :trace_stream}} = assigns) do
+    assigns =
+      assign(assigns,
+        cx: assigns.element.x + assigns.element.width / 2,
+        cy: assigns.element.y + assigns.element.height / 2 - 8
+      )
+
+    ~H"""
+    <g
+      class="canvas-element__icon"
+      transform={"translate(#{@cx}, #{@cy}) scale(1.2) translate(-8, -8)"}
+    >
+      <rect x="0" y="1" width="14" height="3" rx="1" fill="white" opacity="0.9" />
+      <rect x="3" y="6" width="10" height="3" rx="1" fill="white" opacity="0.7" />
+      <rect x="6" y="11" width="8" height="3" rx="1" fill="white" opacity="0.5" />
+    </g>
+    """
+  end
 
   defp element_icon(%{element: %{type: :server}} = assigns) do
     # Rack lines + power dot
@@ -461,6 +635,64 @@ defmodule TimelessUIWeb.CanvasComponents do
     </g>
     """
   end
+
+  # --- Log/Trace stream helpers ---
+
+  defp log_level_color(:error), do: "#ef4444"
+  defp log_level_color(:warning), do: "#f59e0b"
+  defp log_level_color(:info), do: "#22c55e"
+  defp log_level_color(:debug), do: "#94a3b8"
+  defp log_level_color(_), do: "#94a3b8"
+
+  defp format_log_entry(entry) do
+    ts =
+      case entry.timestamp do
+        ts when is_integer(ts) ->
+          ts |> DateTime.from_unix!(:millisecond) |> Calendar.strftime("%H:%M:%S")
+
+        _ ->
+          "??:??:??"
+      end
+
+    level = entry.level |> to_string() |> String.upcase() |> String.slice(0, 4)
+    "#{ts} [#{level}] #{entry.message}"
+  end
+
+  defp duration_color(nil), do: "#94a3b8"
+
+  defp duration_color(duration_ns) when is_integer(duration_ns) do
+    ms = duration_ns / 1_000_000
+
+    cond do
+      ms < 100 -> "#22c55e"
+      ms < 500 -> "#f59e0b"
+      true -> "#ef4444"
+    end
+  end
+
+  defp duration_color(_), do: "#94a3b8"
+
+  defp format_duration(nil), do: "?ms"
+
+  defp format_duration(duration_ns) when is_integer(duration_ns) do
+    ms = duration_ns / 1_000_000
+
+    cond do
+      ms < 1 -> "#{Float.round(ms, 2)}ms"
+      ms < 1000 -> "#{Float.round(ms, 1)}ms"
+      true -> "#{Float.round(ms / 1000, 1)}s"
+    end
+  end
+
+  defp format_duration(_), do: "?ms"
+
+  defp span_status_color(:ok), do: "#22c55e"
+  defp span_status_color(:error), do: "#ef4444"
+  defp span_status_color(_), do: "#94a3b8"
+
+  defp span_status_label(:ok), do: "OK"
+  defp span_status_label(:error), do: "ERR"
+  defp span_status_label(_), do: "---"
 
   defp dash_for_style(:dashed), do: "8 4"
   defp dash_for_style(:dotted), do: "3 3"
