@@ -21,7 +21,8 @@ defmodule TimelessUIWeb.CanvasLive do
     graph: "Graph",
     log_stream: "Logs",
     trace_stream: "Traces",
-    canvas: "Canvas"
+    canvas: "Canvas",
+    text: "Text"
   }
 
   @tick_interval 200

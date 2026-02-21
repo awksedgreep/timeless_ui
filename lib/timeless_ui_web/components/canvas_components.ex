@@ -28,7 +28,7 @@ defmodule TimelessUIWeb.CanvasComponents do
       />
       <.element_icon element={@element} />
       <text
-        :if={@element.type not in [:graph, :log_stream, :trace_stream]}
+        :if={@element.type not in [:graph, :log_stream, :trace_stream, :text]}
         x={@element.x + @element.width / 2}
         y={@element.y + @element.height - 16}
         text-anchor="middle"
@@ -38,6 +38,7 @@ defmodule TimelessUIWeb.CanvasComponents do
         {@element.label}
       </text>
       <circle
+        :if={@element.type != :text}
         cx={@element.x + @element.width - 8}
         cy={@element.y + 8}
         r="5"
@@ -304,6 +305,49 @@ defmodule TimelessUIWeb.CanvasComponents do
     """
   end
 
+  defp element_body(%{element: %{type: :text}} = assigns) do
+    font_size = Map.get(assigns.element.meta, "font_size", "16")
+
+    font_size =
+      case Integer.parse(to_string(font_size)) do
+        {n, _} when n > 0 -> n
+        _ -> 16
+      end
+
+    assigns = assign(assigns, font_size: font_size)
+
+    ~H"""
+    <clipPath id={"text-clip-#{@element.id}"}>
+      <rect
+        x={@element.x}
+        y={@element.y}
+        width={@element.width}
+        height={@element.height}
+      />
+    </clipPath>
+    <rect
+      x={@element.x}
+      y={@element.y}
+      width={@element.width}
+      height={@element.height}
+      fill="transparent"
+      class="canvas-element__body"
+    />
+    <text
+      x={@element.x + @element.width / 2}
+      y={@element.y + @element.height / 2}
+      text-anchor="middle"
+      dominant-baseline="central"
+      fill={@element.color}
+      font-size={@font_size}
+      clip-path={"url(#text-clip-#{@element.id})"}
+      class="canvas-element__text-content"
+    >
+      {@element.label}
+    </text>
+    """
+  end
+
   defp element_body(assigns) do
     assigns = assign(assigns, image_url: assigns.element.meta["image_url"])
 
@@ -346,6 +390,7 @@ defmodule TimelessUIWeb.CanvasComponents do
   defp element_icon(%{element: %{type: :rect}} = assigns), do: ~H""
   defp element_icon(%{element: %{type: :database}} = assigns), do: ~H""
   defp element_icon(%{element: %{type: :graph}} = assigns), do: ~H""
+  defp element_icon(%{element: %{type: :text}} = assigns), do: ~H""
 
   defp element_icon(%{element: %{type: :log_stream}} = assigns) do
     assigns =
