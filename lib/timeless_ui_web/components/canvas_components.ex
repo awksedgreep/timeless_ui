@@ -349,10 +349,10 @@ defmodule TimelessUIWeb.CanvasComponents do
       class="canvas-element__icon"
       transform={"translate(#{@cx}, #{@cy}) scale(1.2) translate(-8, -8)"}
     >
-      <line x1="2" y1="3" x2="14" y2="3" stroke="white" stroke-width="1.5" opacity="0.9" />
-      <line x1="2" y1="7" x2="12" y2="7" stroke="white" stroke-width="1.5" opacity="0.9" />
-      <line x1="2" y1="11" x2="10" y2="11" stroke="white" stroke-width="1.5" opacity="0.9" />
-      <line x1="2" y1="15" x2="13" y2="15" stroke="white" stroke-width="1.5" opacity="0.9" />
+      <line x1="2" y1="3" x2="14" y2="3" stroke="#334155" stroke-width="1.5" opacity="0.6" />
+      <line x1="2" y1="7" x2="12" y2="7" stroke="#334155" stroke-width="1.5" opacity="0.6" />
+      <line x1="2" y1="11" x2="10" y2="11" stroke="#334155" stroke-width="1.5" opacity="0.6" />
+      <line x1="2" y1="15" x2="13" y2="15" stroke="#334155" stroke-width="1.5" opacity="0.6" />
     </g>
     """
   end
@@ -369,9 +369,9 @@ defmodule TimelessUIWeb.CanvasComponents do
       class="canvas-element__icon"
       transform={"translate(#{@cx}, #{@cy}) scale(1.2) translate(-8, -8)"}
     >
-      <rect x="0" y="1" width="14" height="3" rx="1" fill="white" opacity="0.9" />
-      <rect x="3" y="6" width="10" height="3" rx="1" fill="white" opacity="0.7" />
-      <rect x="6" y="11" width="8" height="3" rx="1" fill="white" opacity="0.5" />
+      <rect x="0" y="1" width="14" height="3" rx="1" fill="#334155" opacity="0.6" />
+      <rect x="3" y="6" width="10" height="3" rx="1" fill="#334155" opacity="0.5" />
+      <rect x="6" y="11" width="8" height="3" rx="1" fill="#334155" opacity="0.4" />
     </g>
     """
   end
