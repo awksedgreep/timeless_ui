@@ -550,7 +550,12 @@ defmodule TimelessUIWeb.CanvasLive do
 
       canvas =
         if MapSet.member?(selected_ids, id) and MapSet.size(selected_ids) > 1 do
-          Canvas.move_elements(socket.assigns.canvas, MapSet.to_list(selected_ids), dx / 1.0, dy / 1.0)
+          Canvas.move_elements(
+            socket.assigns.canvas,
+            MapSet.to_list(selected_ids),
+            dx / 1.0,
+            dy / 1.0
+          )
         else
           Canvas.move_element(socket.assigns.canvas, id, dx / 1.0, dy / 1.0)
         end
@@ -705,14 +710,18 @@ defmodule TimelessUIWeb.CanvasLive do
   def handle_event("canvas:undo", _params, socket) do
     require_edit(socket, fn ->
       history = History.undo(socket.assigns.history)
-      {:noreply, assign(socket, history: history, canvas: history.present, selected_ids: MapSet.new())}
+
+      {:noreply,
+       assign(socket, history: history, canvas: history.present, selected_ids: MapSet.new())}
     end)
   end
 
   def handle_event("canvas:redo", _params, socket) do
     require_edit(socket, fn ->
       history = History.redo(socket.assigns.history)
-      {:noreply, assign(socket, history: history, canvas: history.present, selected_ids: MapSet.new())}
+
+      {:noreply,
+       assign(socket, history: history, canvas: history.present, selected_ids: MapSet.new())}
     end)
   end
 
