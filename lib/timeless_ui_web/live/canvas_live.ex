@@ -23,7 +23,7 @@ defmodule TimelessUIWeb.CanvasLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    _current_user = socket.assigns.current_scope.user
+    current_user = socket.assigns.current_scope.user
 
     if connected?(socket) do
       Phoenix.PubSub.subscribe(TimelessUI.PubSub, StatusManager.topic())
@@ -32,16 +32,14 @@ defmodule TimelessUIWeb.CanvasLive do
 
     canvas_name = "default"
 
-    canvas =
-      case Canvases.get_canvas(canvas_name) do
+    # Find or create the user's "default" canvas
+    {canvas, canvas_id} =
+      case Canvases.get_or_create_canvas(current_user.id, canvas_name) do
         {:ok, record} ->
           case Serializer.decode(record.data) do
-            {:ok, c} -> c
-            {:error, _} -> Canvas.new()
+            {:ok, c} -> {c, record.id}
+            {:error, _} -> {Canvas.new(), record.id}
           end
-
-        {:error, :not_found} ->
-          Canvas.new()
       end
 
     history = History.new(canvas)
@@ -59,6 +57,8 @@ defmodule TimelessUIWeb.CanvasLive do
        place_type: :rect,
        connect_from: nil,
        canvas_name: canvas_name,
+       canvas_id: canvas_id,
+       user_id: current_user.id,
        page_title: "TimelessUI Canvas",
        # Timeline / time-travel assigns
        timeline_mode: :live,
@@ -600,12 +600,12 @@ defmodule TimelessUIWeb.CanvasLive do
 
   def handle_event("canvas:save", _params, socket) do
     data = Serializer.encode(socket.assigns.canvas)
-    Canvases.save_canvas(socket.assigns.canvas_name, data)
+    Canvases.update_canvas_data(socket.assigns.canvas_id, data)
     {:noreply, socket}
   end
 
   def handle_event("canvas:load", _params, socket) do
-    case Canvases.get_canvas(socket.assigns.canvas_name) do
+    case Canvases.get_canvas(socket.assigns.canvas_id) do
       {:ok, record} ->
         case Serializer.decode(record.data) do
           {:ok, canvas} ->
@@ -769,7 +769,7 @@ defmodule TimelessUIWeb.CanvasLive do
 
   def handle_info(:autosave, socket) do
     data = Serializer.encode(socket.assigns.canvas)
-    Canvases.save_canvas(socket.assigns.canvas_name, data)
+    Canvases.update_canvas_data(socket.assigns.canvas_id, data)
     {:noreply, socket}
   end
 
