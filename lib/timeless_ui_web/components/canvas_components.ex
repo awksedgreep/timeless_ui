@@ -28,7 +28,7 @@ defmodule TimelessUIWeb.CanvasComponents do
       />
       <.element_icon element={@element} />
       <text
-        :if={@element.type not in [:graph, :log_stream, :trace_stream]}
+        :if={@element.type not in [:graph, :log_stream, :trace_stream, :text]}
         x={@element.x + @element.width / 2}
         y={@element.y + @element.height - 16}
         text-anchor="middle"
@@ -38,6 +38,7 @@ defmodule TimelessUIWeb.CanvasComponents do
         {@element.label}
       </text>
       <circle
+        :if={@element.type != :text}
         cx={@element.x + @element.width - 8}
         cy={@element.y + 8}
         r="5"
@@ -123,7 +124,8 @@ defmodule TimelessUIWeb.CanvasComponents do
         label -> "#{label} | #{level_filter}"
       end
 
-    rows = Enum.take(assigns.stream_entries, 4)
+    max_rows = max(floor((assigns.element.height - 24) / 14), 1)
+    rows = Enum.take(assigns.stream_entries, max_rows)
 
     assigns = assign(assigns, log_title: log_title, rows: rows)
 
@@ -184,7 +186,8 @@ defmodule TimelessUIWeb.CanvasComponents do
         label -> "#{label} | #{service_filter}"
       end
 
-    rows = Enum.take(assigns.stream_entries, 4)
+    max_rows = max(floor((assigns.element.height - 24) / 14), 1)
+    rows = Enum.take(assigns.stream_entries, max_rows)
 
     assigns = assign(assigns, trace_title: trace_title, rows: rows)
 
@@ -304,6 +307,49 @@ defmodule TimelessUIWeb.CanvasComponents do
     """
   end
 
+  defp element_body(%{element: %{type: :text}} = assigns) do
+    font_size = Map.get(assigns.element.meta, "font_size", "16")
+
+    font_size =
+      case Integer.parse(to_string(font_size)) do
+        {n, _} when n > 0 -> n
+        _ -> 16
+      end
+
+    assigns = assign(assigns, font_size: font_size)
+
+    ~H"""
+    <clipPath id={"text-clip-#{@element.id}"}>
+      <rect
+        x={@element.x}
+        y={@element.y}
+        width={@element.width}
+        height={@element.height}
+      />
+    </clipPath>
+    <rect
+      x={@element.x}
+      y={@element.y}
+      width={@element.width}
+      height={@element.height}
+      fill="transparent"
+      class="canvas-element__body"
+    />
+    <text
+      x={@element.x + @element.width / 2}
+      y={@element.y + @element.height / 2}
+      text-anchor="middle"
+      dominant-baseline="central"
+      fill={@element.color}
+      font-size={@font_size}
+      clip-path={"url(#text-clip-#{@element.id})"}
+      class="canvas-element__text-content"
+    >
+      {@element.label}
+    </text>
+    """
+  end
+
   defp element_body(assigns) do
     assigns = assign(assigns, image_url: assigns.element.meta["image_url"])
 
@@ -346,6 +392,7 @@ defmodule TimelessUIWeb.CanvasComponents do
   defp element_icon(%{element: %{type: :rect}} = assigns), do: ~H""
   defp element_icon(%{element: %{type: :database}} = assigns), do: ~H""
   defp element_icon(%{element: %{type: :graph}} = assigns), do: ~H""
+  defp element_icon(%{element: %{type: :text}} = assigns), do: ~H""
 
   defp element_icon(%{element: %{type: :log_stream}} = assigns) do
     assigns =
@@ -587,6 +634,58 @@ defmodule TimelessUIWeb.CanvasComponents do
       <polygon points="6,14 0,20 6,26" fill="white" opacity="0.9" />
       <line x1="28" y1="20" x2="40" y2="20" stroke="white" stroke-width="2.5" opacity="0.9" />
       <polygon points="34,14 40,20 34,26" fill="white" opacity="0.9" />
+    </g>
+    """
+  end
+
+  defp element_icon(%{element: %{type: :canvas}} = assigns) do
+    # Stacked rectangles icon representing sub-canvas
+    assigns =
+      assign(assigns,
+        cx: assigns.element.x + assigns.element.width / 2,
+        cy: assigns.element.y + assigns.element.height / 2 - 10
+      )
+
+    ~H"""
+    <g
+      class="canvas-element__icon"
+      transform={"translate(#{@cx}, #{@cy}) scale(1.4) translate(-10, -10)"}
+    >
+      <rect
+        x="4"
+        y="0"
+        width="16"
+        height="12"
+        rx="1.5"
+        fill="none"
+        stroke="white"
+        stroke-width="1.2"
+        opacity="0.5"
+      />
+      <rect
+        x="2"
+        y="3"
+        width="16"
+        height="12"
+        rx="1.5"
+        fill="none"
+        stroke="white"
+        stroke-width="1.2"
+        opacity="0.7"
+      />
+      <rect
+        x="0"
+        y="6"
+        width="16"
+        height="12"
+        rx="1.5"
+        fill="none"
+        stroke="white"
+        stroke-width="1.2"
+        opacity="0.9"
+      />
+      <line x1="3" y1="10" x2="10" y2="10" stroke="white" stroke-width="0.8" opacity="0.5" />
+      <line x1="3" y1="13" x2="8" y2="13" stroke="white" stroke-width="0.8" opacity="0.5" />
     </g>
     """
   end

@@ -14,6 +14,7 @@ defmodule TimelessUIWeb.CanvasListLive do
        canvases: canvases,
        current_user: current_user,
        is_admin: Policy.admin?(current_user),
+       editing_id: nil,
        page_title: "My Canvases"
      )}
   end
@@ -40,9 +41,33 @@ defmodule TimelessUIWeb.CanvasListLive do
         <div :for={canvas <- @canvases} class="card bg-base-200 shadow-sm">
           <div class="card-body">
             <h2 class="card-title">
-              <.link navigate={~p"/canvas/#{canvas.id}"} class="hover:underline">
+              <form
+                :if={@editing_id == canvas.id}
+                phx-submit="save_rename"
+                phx-click-away="cancel_rename"
+                class="flex-1"
+              >
+                <input type="hidden" name="canvas_id" value={canvas.id} />
+                <input
+                  type="text"
+                  name="name"
+                  value={canvas.name}
+                  class="input input-sm input-bordered w-full"
+                  autofocus
+                  phx-key="Escape"
+                  phx-keydown="cancel_rename"
+                />
+              </form>
+              <.link
+                :if={@editing_id != canvas.id}
+                navigate={~p"/canvas/#{canvas.id}"}
+                class="hover:underline"
+              >
                 {canvas.name}
               </.link>
+              <span :if={canvas.parent_id} class="badge badge-sm badge-ghost ml-1">
+                sub-canvas
+              </span>
             </h2>
             <p class="text-sm text-base-content/60">
               Updated {Calendar.strftime(canvas.updated_at, "%b %d, %Y %H:%M")}
@@ -51,6 +76,14 @@ defmodule TimelessUIWeb.CanvasListLive do
               <.link navigate={~p"/canvas/#{canvas.id}"} class="btn btn-sm btn-primary">
                 Open
               </.link>
+              <button
+                :if={canvas.user_id == @current_user.id && @editing_id != canvas.id}
+                phx-click="start_rename"
+                phx-value-id={canvas.id}
+                class="btn btn-sm btn-ghost"
+              >
+                Rename
+              </button>
               <button
                 :if={canvas.user_id == @current_user.id}
                 phx-click="delete_canvas"
@@ -71,7 +104,8 @@ defmodule TimelessUIWeb.CanvasListLive do
   @impl true
   def handle_event("new_canvas", _params, socket) do
     user = socket.assigns.current_user
-    name = "Canvas #{DateTime.to_unix(DateTime.utc_now())}"
+    existing_count = length(socket.assigns.canvases)
+    name = "New Canvas #{existing_count + 1}"
 
     case Canvases.create_canvas(user.id, name) do
       {:ok, canvas} ->
@@ -79,6 +113,37 @@ defmodule TimelessUIWeb.CanvasListLive do
 
       {:error, _changeset} ->
         {:noreply, put_flash(socket, :error, "Could not create canvas")}
+    end
+  end
+
+  def handle_event("start_rename", %{"id" => id_str}, socket) do
+    {id, ""} = Integer.parse(id_str)
+    {:noreply, assign(socket, editing_id: id)}
+  end
+
+  def handle_event("cancel_rename", _params, socket) do
+    {:noreply, assign(socket, editing_id: nil)}
+  end
+
+  def handle_event("save_rename", %{"canvas_id" => id_str, "name" => name}, socket) do
+    user = socket.assigns.current_user
+    {id, ""} = Integer.parse(id_str)
+    name = String.trim(name)
+
+    if name == "" do
+      {:noreply, assign(socket, editing_id: nil)}
+    else
+      case Canvases.rename_canvas(id, user.id, name) do
+        {:ok, _} ->
+          canvases = Canvases.list_accessible_canvases(user)
+          {:noreply, assign(socket, canvases: canvases, editing_id: nil)}
+
+        {:error, _} ->
+          {:noreply,
+           socket
+           |> put_flash(:error, "Could not rename canvas")
+           |> assign(editing_id: nil)}
+      end
     end
   end
 

@@ -73,7 +73,9 @@ defmodule TimelessUI.Canvas.ElementTest do
       assert :router in types
       assert :log_stream in types
       assert :trace_stream in types
-      assert length(types) == 12
+      assert :canvas in types
+      assert :text in types
+      assert length(types) == 14
     end
   end
 
@@ -163,6 +165,52 @@ defmodule TimelessUI.Canvas.ElementTest do
     test "has metric_name meta field" do
       fields = Element.meta_fields(:graph)
       assert "metric_name" in fields
+    end
+  end
+
+  describe "canvas element type" do
+    test "has correct defaults" do
+      defaults = Element.defaults_for(:canvas)
+      assert defaults.width == 140.0
+      assert defaults.height == 100.0
+      assert defaults.color == "#818cf8"
+      assert defaults.type == :canvas
+    end
+
+    test "creates element with type defaults" do
+      el = Element.new(%{id: "1", type: :canvas})
+      assert el.type == :canvas
+      assert el.width == 140.0
+      assert el.height == 100.0
+      assert el.color == "#818cf8"
+    end
+
+    test "has canvas_id meta field" do
+      fields = Element.meta_fields(:canvas)
+      assert fields == ["canvas_id"]
+    end
+  end
+
+  describe "text element type" do
+    test "has correct defaults" do
+      defaults = Element.defaults_for(:text)
+      assert defaults.width == 200.0
+      assert defaults.height == 40.0
+      assert defaults.color == "#e2e8f0"
+      assert defaults.type == :text
+    end
+
+    test "creates element with type defaults" do
+      el = Element.new(%{id: "1", type: :text})
+      assert el.type == :text
+      assert el.width == 200.0
+      assert el.height == 40.0
+      assert el.color == "#e2e8f0"
+    end
+
+    test "has font_size meta field" do
+      fields = Element.meta_fields(:text)
+      assert fields == ["font_size"]
     end
   end
 

@@ -231,6 +231,67 @@ body:has(.canvas-container) {
   margin: 2px 4px;
 }
 
+/* Canvas Name in Toolbar */
+.canvas-toolbar__name {
+  font-size: 13px;
+  color: var(--text);
+  white-space: nowrap;
+  padding: 4px 8px;
+}
+
+.canvas-toolbar__name--editable {
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.canvas-toolbar__name--editable:hover {
+  background: var(--btn-hover);
+}
+
+.canvas-toolbar__name-form {
+  display: flex;
+}
+
+.canvas-toolbar__name-input {
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 4px 8px;
+  outline: none;
+  width: 180px;
+}
+
+/* Breadcrumbs */
+.canvas-breadcrumbs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.canvas-breadcrumbs__link {
+  color: var(--accent);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.canvas-breadcrumbs__link:hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
+}
+
+.canvas-breadcrumbs__current {
+  color: var(--text);
+}
+
+.canvas-breadcrumbs__sep {
+  color: var(--text-muted);
+  margin: 0 2px;
+}
+
 /* Type Palette */
 .canvas-type-palette {
   display: flex;

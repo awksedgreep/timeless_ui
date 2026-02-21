@@ -20,7 +20,9 @@ defmodule TimelessUIWeb.CanvasLive do
     network: "Network",
     graph: "Graph",
     log_stream: "Logs",
-    trace_stream: "Traces"
+    trace_stream: "Traces",
+    canvas: "Canvas",
+    text: "Text"
   }
 
   @tick_interval 200
@@ -57,6 +59,8 @@ defmodule TimelessUIWeb.CanvasLive do
           %{}
         end
 
+      breadcrumbs = Canvases.breadcrumb_chain(canvas_id)
+
       {:ok,
        assign(socket,
          history: history,
@@ -71,7 +75,9 @@ defmodule TimelessUIWeb.CanvasLive do
          can_edit: can_edit,
          is_owner: is_owner,
          show_share: false,
-         page_title: "TimelessUI Canvas",
+         renaming: false,
+         page_title: record.name,
+         breadcrumbs: breadcrumbs,
          # Timeline / time-travel assigns
          timeline_mode: :live,
          timeline_time: nil,
@@ -102,7 +108,13 @@ defmodule TimelessUIWeb.CanvasLive do
     <div class={"canvas-container#{if sole_selected_object(@selected_ids, @canvas) != nil, do: " canvas-container--panel-open", else: ""}"}>
       <div class="canvas-toolbar">
         <span class="canvas-toolbar__logo" title="Timeless">
-          <svg width="28" height="16" viewBox="0 0 28 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <svg
+            width="28"
+            height="16"
+            viewBox="0 0 28 16"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+          >
             <path
               d="M8 2C4.5 2 2 4.7 2 8s2.5 6 6 6c2.2 0 4-1.2 5.5-3L14 10.5l.5.5c1.5 1.8 3.3 3 5.5 3 3.5 0 6-2.7 6-6s-2.5-6-6-6c-2.2 0-4 1.2-5.5 3L14 5.5 13.5 5C12 3.2 10.2 2 8 2z"
               stroke="#6366f1"
@@ -111,6 +123,42 @@ defmodule TimelessUIWeb.CanvasLive do
               stroke-linejoin="round"
             />
           </svg>
+        </span>
+        <span class="canvas-toolbar__sep"></span>
+        <span :if={length(@breadcrumbs) > 1} class="canvas-breadcrumbs">
+          <span :for={{crumb, i} <- Enum.with_index(Enum.drop(@breadcrumbs, -1))}>
+            <span :if={i > 0} class="canvas-breadcrumbs__sep">/</span>
+            <.link
+              navigate={~p"/canvas/#{elem(crumb, 0)}"}
+              class="canvas-breadcrumbs__link"
+            >
+              {elem(crumb, 1)}
+            </.link>
+          </span>
+          <span class="canvas-breadcrumbs__sep">/</span>
+        </span>
+        <form
+          :if={@renaming}
+          phx-submit="save_name"
+          phx-click-away="cancel_rename"
+          class="canvas-toolbar__name-form"
+        >
+          <input
+            type="text"
+            name="name"
+            value={@canvas_name}
+            class="canvas-toolbar__name-input"
+            autofocus
+            phx-key="Escape"
+            phx-keydown="cancel_rename"
+          />
+        </form>
+        <span
+          :if={!@renaming}
+          class={"canvas-toolbar__name#{if @is_owner, do: " canvas-toolbar__name--editable", else: ""}"}
+          phx-click={if @is_owner, do: "start_rename"}
+        >
+          {@canvas_name}
         </span>
         <span class="canvas-toolbar__sep"></span>
         <span :if={!@can_edit} class="canvas-toolbar__badge canvas-toolbar__badge--readonly">
@@ -488,6 +536,20 @@ defmodule TimelessUIWeb.CanvasLive do
           type = socket.assigns.place_type
           defaults = Element.defaults_for(type)
 
+          # For canvas elements, atomically create the child canvas first
+          meta =
+            if type == :canvas do
+              case Canvases.create_child_canvas(
+                     socket.assigns.canvas_id,
+                     "Sub-canvas #{socket.assigns.canvas.next_id}"
+                   ) do
+                {:ok, child} -> %{"canvas_id" => to_string(child.id)}
+                {:error, _} -> %{}
+              end
+            else
+              %{}
+            end
+
           {canvas, el} =
             Canvas.add_element(socket.assigns.canvas, %{
               type: type,
@@ -496,7 +558,8 @@ defmodule TimelessUIWeb.CanvasLive do
               color: defaults.color,
               width: defaults.width,
               height: defaults.height,
-              label: "#{@type_labels[type] || type} #{socket.assigns.canvas.next_id}"
+              label: "#{@type_labels[type] || type} #{socket.assigns.canvas.next_id}",
+              meta: meta
             })
 
           maybe_register_stream(el)
@@ -534,6 +597,16 @@ defmodule TimelessUIWeb.CanvasLive do
 
       _ ->
         {:noreply, assign(socket, selected_ids: MapSet.new([id]))}
+    end
+  end
+
+  def handle_event("element:dblclick", %{"id" => id}, socket) do
+    case Map.get(socket.assigns.canvas.elements, id) do
+      %{type: :canvas, meta: %{"canvas_id" => canvas_id}} when canvas_id != "" ->
+        {:noreply, push_navigate(socket, to: ~p"/canvas/#{canvas_id}")}
+
+      _ ->
+        {:noreply, socket}
     end
   end
 
@@ -709,6 +782,41 @@ defmodule TimelessUIWeb.CanvasLive do
   def handle_event("select_all", _params, socket) do
     all_ids = socket.assigns.canvas.elements |> Map.keys() |> MapSet.new()
     {:noreply, assign(socket, selected_ids: all_ids)}
+  end
+
+  def handle_event("start_rename", _params, socket) do
+    {:noreply, assign(socket, renaming: true)}
+  end
+
+  def handle_event("cancel_rename", _params, socket) do
+    {:noreply, assign(socket, renaming: false)}
+  end
+
+  def handle_event("save_name", %{"name" => name}, socket) do
+    name = String.trim(name)
+
+    if name == "" do
+      {:noreply, assign(socket, renaming: false)}
+    else
+      case Canvases.rename_canvas(socket.assigns.canvas_id, socket.assigns.user_id, name) do
+        {:ok, _} ->
+          breadcrumbs = Canvases.breadcrumb_chain(socket.assigns.canvas_id)
+
+          {:noreply,
+           assign(socket,
+             canvas_name: name,
+             renaming: false,
+             page_title: name,
+             breadcrumbs: breadcrumbs
+           )}
+
+        {:error, _} ->
+          {:noreply,
+           socket
+           |> put_flash(:error, "Could not rename canvas")
+           |> assign(renaming: false)}
+      end
+    end
   end
 
   def handle_event("toggle_share", _params, socket) do
@@ -1096,7 +1204,8 @@ defmodule TimelessUIWeb.CanvasLive do
 
   defp stream_entries_for(%{type: type} = element, stream_data)
        when type in [:log_stream, :trace_stream] do
-    Enum.take(Map.get(stream_data, element.id, []), 4)
+    max_rows = max(floor((element.height - 24) / 14), 1)
+    Enum.take(Map.get(stream_data, element.id, []), max_rows)
   end
 
   defp stream_entries_for(_element, _stream_data), do: []

@@ -130,6 +130,24 @@ defmodule TimelessUI.CanvasesTest do
     end
   end
 
+  describe "rename_canvas/3" do
+    test "renames a canvas owned by the user", %{user: user} do
+      {:ok, canvas} = Canvases.create_canvas(user.id, "old_name")
+      assert {:ok, renamed} = Canvases.rename_canvas(canvas.id, user.id, "new_name")
+      assert renamed.name == "new_name"
+    end
+
+    test "returns error when user doesn't own canvas", %{user: user} do
+      user2 = user_fixture()
+      {:ok, canvas} = Canvases.create_canvas(user.id, "mine")
+      assert {:error, :not_found} = Canvases.rename_canvas(canvas.id, user2.id, "stolen")
+    end
+
+    test "returns error for missing canvas", %{user: user} do
+      assert {:error, :not_found} = Canvases.rename_canvas(0, user.id, "nope")
+    end
+  end
+
   describe "update_canvas_data/2" do
     test "updates data for existing canvas", %{user: user} do
       data1 = Serializer.encode(Canvas.new())
@@ -201,6 +219,56 @@ defmodule TimelessUI.CanvasesTest do
       names = Enum.map(canvases, & &1.name)
       assert "mine" in names
       assert "theirs" in names
+    end
+  end
+
+  describe "create_child_canvas/2" do
+    test "creates a child canvas with correct parent_id and user_id", %{user: user} do
+      {:ok, parent} = Canvases.create_canvas(user.id, "parent")
+      {:ok, child} = Canvases.create_child_canvas(parent.id, "child")
+
+      assert child.parent_id == parent.id
+      assert child.user_id == user.id
+      assert child.name == "child"
+      assert child.data == %{}
+    end
+
+    test "returns error for non-existent parent" do
+      assert {:error, :parent_not_found} = Canvases.create_child_canvas(0, "orphan")
+    end
+  end
+
+  describe "breadcrumb_chain/1" do
+    test "returns single entry for root canvas", %{user: user} do
+      {:ok, root} = Canvases.create_canvas(user.id, "root")
+
+      chain = Canvases.breadcrumb_chain(root.id)
+      assert chain == [{root.id, "root"}]
+    end
+
+    test "returns chain for nested canvases (root-first)", %{user: user} do
+      {:ok, root} = Canvases.create_canvas(user.id, "root")
+      {:ok, child} = Canvases.create_child_canvas(root.id, "child")
+      {:ok, grandchild} = Canvases.create_child_canvas(child.id, "grandchild")
+
+      chain = Canvases.breadcrumb_chain(grandchild.id)
+      assert chain == [{root.id, "root"}, {child.id, "child"}, {grandchild.id, "grandchild"}]
+    end
+
+    test "returns empty list for non-existent canvas" do
+      assert Canvases.breadcrumb_chain(0) == []
+    end
+  end
+
+  describe "orphan behavior" do
+    test "deleting parent nilifies child's parent_id", %{user: user} do
+      {:ok, parent} = Canvases.create_canvas(user.id, "parent")
+      {:ok, child} = Canvases.create_child_canvas(parent.id, "child")
+
+      {:ok, _} = Canvases.delete_canvas(parent.id, user.id)
+
+      {:ok, reloaded} = Canvases.get_canvas(child.id)
+      assert reloaded.parent_id == nil
     end
   end
 end

@@ -43,7 +43,9 @@ defmodule TimelessUI.Canvas.Element do
     network: %{width: 160.0, height: 60.0, color: "#64748b"},
     graph: %{width: 120.0, height: 60.0, color: "#0ea5e9"},
     log_stream: %{width: 280.0, height: 80.0, color: "#10b981"},
-    trace_stream: %{width: 280.0, height: 80.0, color: "#8b5cf6"}
+    trace_stream: %{width: 280.0, height: 80.0, color: "#8b5cf6"},
+    canvas: %{width: 140.0, height: 100.0, color: "#818cf8"},
+    text: %{width: 200.0, height: 40.0, color: "#e2e8f0"}
   }
 
   @doc """
@@ -83,7 +85,9 @@ defmodule TimelessUI.Canvas.Element do
     network: ~w(host cidr vlan),
     graph: ~w(metric_name),
     log_stream: ~w(level metadata_filter),
-    trace_stream: ~w(service name kind)
+    trace_stream: ~w(service name kind),
+    canvas: ~w(canvas_id),
+    text: ~w(font_size)
   }
 
   @doc """
