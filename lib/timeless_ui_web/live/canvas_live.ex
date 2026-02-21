@@ -62,6 +62,7 @@ defmodule TimelessUIWeb.CanvasLive do
          user_id: current_user.id,
          can_edit: can_edit,
          is_owner: is_owner,
+         show_share: false,
          page_title: "TimelessUI Canvas",
          # Timeline / time-travel assigns
          timeline_mode: :live,
@@ -181,6 +182,22 @@ defmodule TimelessUIWeb.CanvasLive do
         >
           Delete
         </button>
+        <span :if={@is_owner} class="canvas-toolbar__sep"></span>
+        <button
+          :if={@is_owner}
+          phx-click="toggle_share"
+          class={"canvas-toolbar__btn#{if @show_share, do: " canvas-toolbar__btn--active", else: ""}"}
+        >
+          Share
+        </button>
+      </div>
+
+      <div :if={@show_share && @is_owner} class="canvas-share-overlay">
+        <.live_component
+          module={TimelessUIWeb.CanvasShareComponent}
+          id="canvas-share"
+          canvas_id={@canvas_id}
+        />
       </div>
 
       <svg
@@ -567,6 +584,14 @@ defmodule TimelessUIWeb.CanvasLive do
 
   def handle_event("canvas:deselect", _params, socket) do
     {:noreply, assign(socket, selected_id: nil, connect_from: nil)}
+  end
+
+  def handle_event("toggle_share", _params, socket) do
+    {:noreply, assign(socket, show_share: !socket.assigns.show_share)}
+  end
+
+  def handle_event("close_share", _params, socket) do
+    {:noreply, assign(socket, show_share: false)}
   end
 
   def handle_event("canvas:undo", _params, socket) do
