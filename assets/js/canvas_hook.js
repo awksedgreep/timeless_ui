@@ -651,36 +651,115 @@ const CanvasHook = {
     if (!group) return;
 
     const body = group.querySelector(".canvas-element__body");
-    const label = group.querySelector(".canvas-element__label");
-    const handle = group.querySelector(".canvas-element__handle");
+    if (!body) return;
 
-    if (body && body.tagName === "rect") {
+    // Get element origin (top-left corner)
+    let x, y;
+    if (body.tagName === "ellipse") {
+      // Database: origin from the body-rect or computed from ellipse
+      const bodyRect = group.querySelector(".canvas-element__body-rect");
+      if (bodyRect) {
+        x = parseFloat(bodyRect.getAttribute("x"));
+        y = parseFloat(body.getAttribute("cy")) - 15; // top ellipse cy - ry
+      } else {
+        x = parseFloat(body.getAttribute("cx")) - parseFloat(body.getAttribute("rx"));
+        y = parseFloat(body.getAttribute("cy")) - parseFloat(body.getAttribute("ry"));
+      }
+    } else {
+      x = parseFloat(body.getAttribute("x"));
+      y = parseFloat(body.getAttribute("y"));
+    }
+
+    // --- Resize the body shape ---
+    if (body.tagName === "rect") {
       body.setAttribute("width", width);
       body.setAttribute("height", height);
 
-      if (label) {
-        const x = parseFloat(body.getAttribute("x"));
-        const y = parseFloat(body.getAttribute("y"));
-        label.setAttribute("x", x + width / 2);
-        label.setAttribute("y", y + height - 16);
-      }
-      if (handle) {
-        const x = parseFloat(body.getAttribute("x"));
-        const y = parseFloat(body.getAttribute("y"));
-        handle.setAttribute("x", x + width - 10);
-        handle.setAttribute("y", y + height - 10);
-      }
-    } else if (body && body.tagName === "ellipse") {
-      // Database cylinder - resize ellipse + rect
+      // Update clip paths (graph, log_stream, trace_stream)
+      group.querySelectorAll("clipPath rect").forEach((r) => {
+        r.setAttribute("width", width);
+        r.setAttribute("height", height);
+      });
+    } else if (body.tagName === "ellipse") {
+      // Database cylinder
+      body.setAttribute("cx", x + width / 2);
       body.setAttribute("rx", width / 2);
+
       const bodyRect = group.querySelector(".canvas-element__body-rect");
-      const bodyBottom = group.querySelector(".canvas-element__body-bottom");
       if (bodyRect) {
         bodyRect.setAttribute("width", width);
         bodyRect.setAttribute("height", height - 30);
       }
+
+      const bodyBottom = group.querySelector(".canvas-element__body-bottom");
       if (bodyBottom) {
+        bodyBottom.setAttribute("cx", x + width / 2);
+        bodyBottom.setAttribute("cy", y + height - 15);
         bodyBottom.setAttribute("rx", width / 2);
+      }
+
+      // Bottom outline ellipse (the brightness filter one)
+      group.querySelectorAll("ellipse").forEach((el) => {
+        if (el === body || el === bodyBottom || el.classList.contains("canvas-element__status")) return;
+        if (el.getAttribute("fill") === "none") {
+          el.setAttribute("cx", x + width / 2);
+          el.setAttribute("cy", y + height - 15);
+          el.setAttribute("rx", width / 2);
+        }
+      });
+
+      // Hit rect
+      const hitRect = group.querySelector(".canvas-element__hit");
+      if (hitRect) {
+        hitRect.setAttribute("width", width);
+        hitRect.setAttribute("height", height);
+      }
+    }
+
+    // --- Reposition shared elements ---
+
+    // Label
+    const label = group.querySelector(".canvas-element__label");
+    if (label) {
+      label.setAttribute("x", x + width / 2);
+      label.setAttribute("y", y + height - 16);
+    }
+
+    // Resize handle
+    const handle = group.querySelector(".canvas-element__handle");
+    if (handle) {
+      handle.setAttribute("x", x + width - 10);
+      handle.setAttribute("y", y + height - 10);
+    }
+
+    // Status circle (top-right corner)
+    const status = group.querySelector(".canvas-element__status");
+    if (status) {
+      status.setAttribute("cx", x + width - 8);
+    }
+
+    // Icon (transform-based, positioned relative to element center)
+    const icon = group.querySelector(".canvas-element__icon");
+    if (icon) {
+      const t = icon.getAttribute("transform");
+      if (t) {
+        // Store original transform and body size on first resize
+        if (!icon._origTransform) {
+          icon._origTransform = t;
+          icon._origWidth = this.dragging.startWidth;
+          icon._origHeight = this.dragging.startHeight;
+        }
+        // Compute center shift from original to new size
+        const dCx = (width - icon._origWidth) / 2;
+        const dCy = (height - icon._origHeight) / 2;
+        // Shift the first translate in the transform string
+        const orig = icon._origTransform;
+        const m = orig.match(/translate\(\s*([^,)]+)[,\s]+([^)]+)\)(.*)/);
+        if (m) {
+          const newTx = parseFloat(m[1]) + dCx;
+          const newTy = parseFloat(m[2]) + dCy;
+          icon.setAttribute("transform", `translate(${newTx}, ${newTy})${m[3]}`);
+        }
       }
     }
   },
