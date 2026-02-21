@@ -15,6 +15,7 @@ defmodule TimelessUI.Application do
       {DNSCluster, query: Application.get_env(:timeless_ui, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: TimelessUI.PubSub},
       TimelessUI.DataSource.Manager,
+      TimelessUI.StreamManager,
       TimelessUIWeb.Endpoint
     ]
 
