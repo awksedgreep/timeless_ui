@@ -17,7 +17,9 @@ defmodule TimelessUIWeb.CanvasLive do
     queue: "Queue",
     cache: "Cache",
     network: "Network",
-    graph: "Graph"
+    graph: "Graph",
+    log_stream: "Logs",
+    trace_stream: "Traces"
   }
 
   @tick_interval 200

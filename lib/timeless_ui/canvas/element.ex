@@ -41,7 +41,9 @@ defmodule TimelessUI.Canvas.Element do
     cache: %{width: 100.0, height: 80.0, color: "#ef4444"},
     router: %{width: 100.0, height: 100.0, color: "#f97316"},
     network: %{width: 160.0, height: 60.0, color: "#64748b"},
-    graph: %{width: 120.0, height: 60.0, color: "#0ea5e9"}
+    graph: %{width: 120.0, height: 60.0, color: "#0ea5e9"},
+    log_stream: %{width: 280.0, height: 80.0, color: "#10b981"},
+    trace_stream: %{width: 280.0, height: 80.0, color: "#8b5cf6"}
   }
 
   @doc """
@@ -79,7 +81,9 @@ defmodule TimelessUI.Canvas.Element do
     cache: ~w(engine host port),
     router: ~w(host ip os role),
     network: ~w(host cidr vlan),
-    graph: ~w(metric_name)
+    graph: ~w(metric_name),
+    log_stream: ~w(level metadata_filter),
+    trace_stream: ~w(service name kind)
   }
 
   @doc """

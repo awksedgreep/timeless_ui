@@ -71,7 +71,9 @@ defmodule TimelessUI.Canvas.ElementTest do
       assert :network in types
       assert :graph in types
       assert :router in types
-      assert length(types) == 10
+      assert :log_stream in types
+      assert :trace_stream in types
+      assert length(types) == 12
     end
   end
 
@@ -116,6 +118,37 @@ defmodule TimelessUI.Canvas.ElementTest do
 
     test "returns empty list for unknown type" do
       assert Element.meta_fields(:unknown_type) == []
+    end
+  end
+
+  describe "log_stream element type" do
+    test "has wide panel dimensions" do
+      el = Element.new(%{id: "1", type: :log_stream})
+      assert el.width == 280.0
+      assert el.height == 80.0
+      assert el.color == "#10b981"
+    end
+
+    test "has level and metadata_filter meta fields" do
+      fields = Element.meta_fields(:log_stream)
+      assert "level" in fields
+      assert "metadata_filter" in fields
+    end
+  end
+
+  describe "trace_stream element type" do
+    test "has wide panel dimensions" do
+      el = Element.new(%{id: "1", type: :trace_stream})
+      assert el.width == 280.0
+      assert el.height == 80.0
+      assert el.color == "#8b5cf6"
+    end
+
+    test "has service, name, and kind meta fields" do
+      fields = Element.meta_fields(:trace_stream)
+      assert "service" in fields
+      assert "name" in fields
+      assert "kind" in fields
     end
   end
 
