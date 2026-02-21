@@ -111,6 +111,20 @@ defmodule TimelessUI.Canvas do
   end
 
   @doc """
+  Move multiple elements by (dx, dy). Elements not found are skipped.
+  """
+  def move_elements(%__MODULE__{} = canvas, ids, dx, dy) do
+    Enum.reduce(ids, canvas, fn id, acc -> move_element(acc, id, dx, dy) end)
+  end
+
+  @doc """
+  Remove multiple elements by ID. Cascade-deletes connections for each.
+  """
+  def remove_elements(%__MODULE__{} = canvas, ids) do
+    Enum.reduce(ids, canvas, fn id, acc -> remove_element(acc, id) end)
+  end
+
+  @doc """
   Set an element's status. This is ephemeral (not undoable).
   """
   def set_element_status(%__MODULE__{} = canvas, id, status)

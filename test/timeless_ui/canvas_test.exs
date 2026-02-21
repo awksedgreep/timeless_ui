@@ -96,6 +96,62 @@ defmodule TimelessUI.CanvasTest do
     end
   end
 
+  describe "move_elements/4" do
+    test "moves multiple elements by delta" do
+      canvas = Canvas.new(snap_to_grid: false)
+      {canvas, el1} = Canvas.add_element(canvas, %{x: 100.0, y: 100.0})
+      {canvas, el2} = Canvas.add_element(canvas, %{x: 300.0, y: 200.0})
+
+      canvas = Canvas.move_elements(canvas, [el1.id, el2.id], 50.0, -25.0)
+
+      assert canvas.elements[el1.id].x == 150.0
+      assert canvas.elements[el1.id].y == 75.0
+      assert canvas.elements[el2.id].x == 350.0
+      assert canvas.elements[el2.id].y == 175.0
+    end
+
+    test "skips non-existent IDs" do
+      canvas = Canvas.new(snap_to_grid: false)
+      {canvas, el} = Canvas.add_element(canvas, %{x: 100.0, y: 100.0})
+
+      canvas = Canvas.move_elements(canvas, [el.id, "nope"], 10.0, 10.0)
+
+      assert canvas.elements[el.id].x == 110.0
+      assert canvas.elements[el.id].y == 110.0
+    end
+
+    test "returns unchanged canvas for empty list" do
+      canvas = Canvas.new()
+      assert Canvas.move_elements(canvas, [], 50.0, 50.0) == canvas
+    end
+  end
+
+  describe "remove_elements/2" do
+    test "removes multiple elements and their connections" do
+      canvas = Canvas.new()
+      {canvas, el1} = Canvas.add_element(canvas)
+      {canvas, el2} = Canvas.add_element(canvas)
+      {canvas, el3} = Canvas.add_element(canvas)
+      {canvas, _conn} = Canvas.add_connection(canvas, el1.id, el2.id)
+      {canvas, _conn2} = Canvas.add_connection(canvas, el2.id, el3.id)
+
+      canvas = Canvas.remove_elements(canvas, [el1.id, el2.id])
+
+      assert map_size(canvas.elements) == 1
+      assert Map.has_key?(canvas.elements, el3.id)
+      # All connections involving el1 or el2 should be gone
+      assert canvas.connections == %{}
+    end
+
+    test "returns unchanged canvas for empty list" do
+      canvas = Canvas.new()
+      {canvas, _el} = Canvas.add_element(canvas)
+      original = canvas
+
+      assert Canvas.remove_elements(canvas, []) == original
+    end
+  end
+
   describe "update_element/3" do
     test "updates element attributes" do
       canvas = Canvas.new(snap_to_grid: false)
