@@ -6,6 +6,7 @@ defmodule TimelessUIWeb.CanvasLive do
   alias TimelessUI.Canvases
   alias TimelessUI.Canvases.Policy
   alias TimelessUI.DataSource.Manager, as: StatusManager
+  alias TimelessUI.StreamManager
   import TimelessUIWeb.CanvasComponents
 
   @type_labels %{
@@ -37,6 +38,7 @@ defmodule TimelessUIWeb.CanvasLive do
       if connected?(socket) do
         Phoenix.PubSub.subscribe(TimelessUI.PubSub, StatusManager.topic())
         Phoenix.PubSub.subscribe(TimelessUI.PubSub, StatusManager.metric_topic())
+        Phoenix.PubSub.subscribe(TimelessUI.PubSub, StreamManager.topic())
       end
 
       canvas =
@@ -47,9 +49,13 @@ defmodule TimelessUIWeb.CanvasLive do
 
       history = History.new(canvas)
 
-      if connected?(socket) and map_size(canvas.elements) > 0 do
-        StatusManager.register_elements(Map.values(canvas.elements))
-      end
+      stream_data =
+        if connected?(socket) and map_size(canvas.elements) > 0 do
+          StatusManager.register_elements(Map.values(canvas.elements))
+          register_stream_elements(canvas.elements)
+        else
+          %{}
+        end
 
       {:ok,
        assign(socket,
@@ -73,7 +79,8 @@ defmodule TimelessUIWeb.CanvasLive do
          timeline_speed: 1.0,
          timeline_range: nil,
          playback_ref: nil,
-         graph_data: %{}
+         graph_data: %{},
+         stream_data: stream_data
        )}
     else
       _ ->
@@ -85,6 +92,7 @@ defmodule TimelessUIWeb.CanvasLive do
   end
 
   @max_graph_points 60
+  @max_stream_entries 50
 
   @impl true
   def render(assigns) do
@@ -252,6 +260,7 @@ defmodule TimelessUIWeb.CanvasLive do
           selected={element.id == @selected_id}
           graph_points={graph_points_for(element, @graph_data)}
           graph_value={graph_value_for(element, @graph_data)}
+          stream_entries={stream_entries_for(element, @stream_data)}
         />
       </svg>
 
@@ -469,7 +478,7 @@ defmodule TimelessUIWeb.CanvasLive do
           type = socket.assigns.place_type
           defaults = Element.defaults_for(type)
 
-          {canvas, _el} =
+          {canvas, el} =
             Canvas.add_element(socket.assigns.canvas, %{
               type: type,
               x: x / 1.0,
@@ -479,6 +488,8 @@ defmodule TimelessUIWeb.CanvasLive do
               height: defaults.height,
               label: "#{@type_labels[type] || type} #{socket.assigns.canvas.next_id}"
             })
+
+          maybe_register_stream(el)
 
           {:noreply, push_canvas(socket, canvas) |> schedule_autosave()}
         end)
@@ -615,6 +626,12 @@ defmodule TimelessUIWeb.CanvasLive do
            push_canvas(socket, canvas) |> assign(selected_id: nil) |> schedule_autosave()}
 
         "el-" <> _ = id ->
+          el = socket.assigns.canvas.elements[id]
+
+          if el && el.type in [:log_stream, :trace_stream] do
+            StreamManager.unregister_stream(id)
+          end
+
           canvas = Canvas.remove_element(socket.assigns.canvas, id)
 
           {:noreply,
@@ -841,6 +858,22 @@ defmodule TimelessUIWeb.CanvasLive do
     end
   end
 
+  def handle_info({:stream_entry, element_id, entry_map}, socket) do
+    stream_data = socket.assigns.stream_data
+    entries = Map.get(stream_data, element_id, [])
+    entries = Enum.take([entry_map | entries], @max_stream_entries)
+    stream_data = Map.put(stream_data, element_id, entries)
+    {:noreply, assign(socket, stream_data: stream_data)}
+  end
+
+  def handle_info({:stream_span, element_id, span_map}, socket) do
+    stream_data = socket.assigns.stream_data
+    entries = Map.get(stream_data, element_id, [])
+    entries = Enum.take([span_map | entries], @max_stream_entries)
+    stream_data = Map.put(stream_data, element_id, entries)
+    {:noreply, assign(socket, stream_data: stream_data)}
+  end
+
   def handle_info(:timeline_tick, socket) do
     if socket.assigns.timeline_mode != :historical or not socket.assigns.timeline_playing do
       {:noreply, assign(socket, playback_ref: nil)}
@@ -973,6 +1006,98 @@ defmodule TimelessUIWeb.CanvasLive do
       end)
 
     assign(socket, graph_data: graph_data)
+  end
+
+  defp stream_entries_for(%{type: type} = element, stream_data)
+       when type in [:log_stream, :trace_stream] do
+    Enum.take(Map.get(stream_data, element.id, []), 4)
+  end
+
+  defp stream_entries_for(_element, _stream_data), do: []
+
+  defp register_stream_elements(elements) do
+    Enum.reduce(elements, %{}, fn {_id, el}, acc ->
+      case el.type do
+        :log_stream ->
+          opts = build_log_opts(el.meta)
+          StreamManager.register_log_stream(el.id, opts)
+          Map.put(acc, el.id, StreamManager.get_buffer(el.id))
+
+        :trace_stream ->
+          opts = build_trace_opts(el.meta)
+          StreamManager.register_trace_stream(el.id, opts)
+          Map.put(acc, el.id, StreamManager.get_buffer(el.id))
+
+        _ ->
+          acc
+      end
+    end)
+  end
+
+  defp maybe_register_stream(%{type: :log_stream} = el) do
+    StreamManager.register_log_stream(el.id, build_log_opts(el.meta))
+  end
+
+  defp maybe_register_stream(%{type: :trace_stream} = el) do
+    StreamManager.register_trace_stream(el.id, build_trace_opts(el.meta))
+  end
+
+  defp maybe_register_stream(_el), do: :ok
+
+  defp build_log_opts(meta) do
+    opts = []
+
+    opts =
+      case Map.get(meta, "level") do
+        nil -> opts
+        "" -> opts
+        level -> Keyword.put(opts, :level, String.to_existing_atom(level))
+      end
+
+    case Map.get(meta, "metadata_filter") do
+      nil ->
+        opts
+
+      "" ->
+        opts
+
+      filter_str ->
+        metadata =
+          filter_str
+          |> String.split(",")
+          |> Enum.reduce(%{}, fn pair, acc ->
+            case String.split(String.trim(pair), "=", parts: 2) do
+              [k, v] -> Map.put(acc, String.trim(k), String.trim(v))
+              _ -> acc
+            end
+          end)
+
+        if map_size(metadata) > 0, do: Keyword.put(opts, :metadata, metadata), else: opts
+    end
+  end
+
+  defp build_trace_opts(meta) do
+    opts = []
+
+    opts =
+      case Map.get(meta, "service") do
+        nil -> opts
+        "" -> opts
+        svc -> Keyword.put(opts, :service, svc)
+      end
+
+    opts =
+      case Map.get(meta, "name") do
+        nil -> opts
+        "" -> opts
+        name -> Keyword.put(opts, :name, name)
+      end
+
+    case Map.get(meta, "kind") do
+      nil -> opts
+      "" -> opts
+      kind -> Keyword.put(opts, :kind, String.to_existing_atom(kind))
+    end
   end
 
   defp maybe_put(map, _key, nil), do: map
