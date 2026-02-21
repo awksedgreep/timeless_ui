@@ -64,7 +64,8 @@ defmodule TimelessUI.MixProject do
       {:jason, "~> 1.2"},
       {:dns_cluster, "~> 0.2.0"},
       {:swoosh, "~> 1.4"},
-      {:bandit, "~> 1.5"}
+      {:bandit, "~> 1.5"},
+      {:timeless_stack, path: "../timeless_stack"}
     ]
   end
 
