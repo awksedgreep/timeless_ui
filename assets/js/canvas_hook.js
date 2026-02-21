@@ -16,6 +16,8 @@ const CanvasHook = {
     this.clickThreshold = 2; // px
     this.tempLine = null; // SVG line for connect mode
     this.marqueeRect = null; // SVG rect for marquee selection
+    this._lastClickId = null; // track element clicks for dblclick detection
+    this._lastClickTime = 0;
 
     this.svg.addEventListener("pointerdown", (e) => this.onPointerDown(e));
     this.svg.addEventListener("pointermove", (e) => this.onPointerMove(e));
@@ -27,9 +29,6 @@ const CanvasHook = {
 
     // Prevent context menu on canvas
     this.svg.addEventListener("contextmenu", (e) => e.preventDefault());
-
-    // Double-click to navigate into sub-canvases
-    this.svg.addEventListener("dblclick", (e) => this.onDoubleClick(e));
 
     this._zoomDebounce = null;
 
@@ -297,10 +296,22 @@ const CanvasHook = {
           const g = this.svg.querySelector(`[data-element-id="${gid}"]`);
           if (g) g.removeAttribute("transform");
         }
-        if (this.dragging.shiftKey) {
-          this.pushEvent("element:shift_select", { id: this.dragging.id });
+
+        // Detect double-click: same element within 400ms
+        const now = Date.now();
+        const id = this.dragging.id;
+        if (this._lastClickId === id && now - this._lastClickTime < 400) {
+          this.pushEvent("element:dblclick", { id });
+          this._lastClickId = null;
+          this._lastClickTime = 0;
         } else {
-          this.pushEvent("element:select", { id: this.dragging.id });
+          this._lastClickId = id;
+          this._lastClickTime = now;
+          if (this.dragging.shiftKey) {
+            this.pushEvent("element:shift_select", { id });
+          } else {
+            this.pushEvent("element:select", { id });
+          }
         }
       } else if (this.getMode() !== "connect") {
         // Keep transform until server patches with new coordinates
@@ -430,13 +441,6 @@ const CanvasHook = {
     } else if (e.key === "l" || e.key === "L") {
       e.preventDefault();
       this.pushEvent("timeline:go_live", {});
-    }
-  },
-
-  onDoubleClick(e) {
-    const elGroup = e.target.closest("[data-element-id]");
-    if (elGroup) {
-      this.pushEvent("element:dblclick", { id: elGroup.dataset.elementId });
     }
   },
 
