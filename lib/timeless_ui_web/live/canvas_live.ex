@@ -125,10 +125,9 @@ defmodule TimelessUIWeb.CanvasLive do
         </span>
         <span class="canvas-toolbar__sep"></span>
         <span :if={length(@breadcrumbs) > 1} class="canvas-breadcrumbs">
-          <span :for={{crumb, i} <- Enum.with_index(@breadcrumbs)}>
+          <span :for={{crumb, i} <- Enum.with_index(Enum.drop(@breadcrumbs, -1))}>
             <span :if={i > 0} class="canvas-breadcrumbs__sep">/</span>
             <.link
-              :if={i < length(@breadcrumbs) - 1}
               navigate={~p"/canvas/#{elem(crumb, 0)}"}
               class="canvas-breadcrumbs__link"
             >
