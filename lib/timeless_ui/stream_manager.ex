@@ -55,6 +55,7 @@ defmodule TimelessUI.StreamManager do
 
   @impl true
   def init(_opts) do
+    Process.flag(:trap_exit, true)
     {:ok, %{subscriptions: %{}}}
   end
 

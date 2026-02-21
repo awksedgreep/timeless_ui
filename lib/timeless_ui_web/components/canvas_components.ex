@@ -216,7 +216,9 @@ defmodule TimelessUIWeb.CanvasComponents do
       clip-path={"url(#trace-clip-#{@element.id})"}
     >
       <tspan fill="#e2e8f0">{span.name}</tspan>
-      <tspan dx="6" fill={duration_color(span.duration_ns)}>{format_duration(span.duration_ns)}</tspan>
+      <tspan dx="6" fill={duration_color(span.duration_ns)}>
+        {format_duration(span.duration_ns)}
+      </tspan>
       <tspan dx="6" fill={span_status_color(span.status)}>{span_status_label(span.status)}</tspan>
     </text>
     <text

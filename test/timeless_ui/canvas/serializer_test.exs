@@ -66,6 +66,50 @@ defmodule TimelessUI.Canvas.SerializerTest do
       assert_in_delta decoded.view_box.width, canvas.view_box.width, 0.01
     end
 
+    test "log_stream element roundtrips with meta" do
+      canvas = Canvas.new(snap_to_grid: false)
+
+      {canvas, _} =
+        Canvas.add_element(canvas, %{
+          label: "Error Logs",
+          type: :log_stream,
+          x: 50.0,
+          y: 50.0,
+          meta: %{"level" => "error", "metadata_filter" => "host=web-01"}
+        })
+
+      data = Serializer.encode(canvas)
+      {:ok, decoded} = Serializer.decode(data)
+
+      el = decoded.elements["el-1"]
+      assert el.type == :log_stream
+      assert el.label == "Error Logs"
+      assert el.meta["level"] == "error"
+      assert el.meta["metadata_filter"] == "host=web-01"
+    end
+
+    test "trace_stream element roundtrips with meta" do
+      canvas = Canvas.new(snap_to_grid: false)
+
+      {canvas, _} =
+        Canvas.add_element(canvas, %{
+          label: "API Traces",
+          type: :trace_stream,
+          x: 100.0,
+          y: 100.0,
+          meta: %{"service" => "api", "kind" => "server"}
+        })
+
+      data = Serializer.encode(canvas)
+      {:ok, decoded} = Serializer.decode(data)
+
+      el = decoded.elements["el-1"]
+      assert el.type == :trace_stream
+      assert el.label == "API Traces"
+      assert el.meta["service"] == "api"
+      assert el.meta["kind"] == "server"
+    end
+
     test "preserves grid settings" do
       canvas = Canvas.new(grid_size: 10, grid_visible: false, snap_to_grid: false)
       data = Serializer.encode(canvas)
