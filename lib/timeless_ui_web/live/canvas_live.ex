@@ -23,6 +23,8 @@ defmodule TimelessUIWeb.CanvasLive do
 
   @impl true
   def mount(_params, _session, socket) do
+    _current_user = socket.assigns.current_scope.user
+
     if connected?(socket) do
       Phoenix.PubSub.subscribe(TimelessUI.PubSub, StatusManager.topic())
       Phoenix.PubSub.subscribe(TimelessUI.PubSub, StatusManager.metric_topic())

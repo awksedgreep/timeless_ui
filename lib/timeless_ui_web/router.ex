@@ -17,12 +17,6 @@ defmodule TimelessUIWeb.Router do
     plug :accepts, ["json"]
   end
 
-  scope "/", TimelessUIWeb do
-    pipe_through :browser
-
-    live "/", CanvasLive, :index
-  end
-
   # Other scopes may use custom stacks.
   # scope "/api", TimelessUIWeb do
   #   pipe_through :api
@@ -52,6 +46,7 @@ defmodule TimelessUIWeb.Router do
 
     live_session :require_authenticated_user,
       on_mount: [{TimelessUIWeb.UserAuth, :require_authenticated}] do
+      live "/", CanvasLive, :index
       live "/users/settings", UserLive.Settings, :edit
       live "/users/settings/confirm-email/:token", UserLive.Settings, :confirm_email
     end
