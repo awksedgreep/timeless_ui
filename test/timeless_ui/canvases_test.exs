@@ -130,6 +130,24 @@ defmodule TimelessUI.CanvasesTest do
     end
   end
 
+  describe "rename_canvas/3" do
+    test "renames a canvas owned by the user", %{user: user} do
+      {:ok, canvas} = Canvases.create_canvas(user.id, "old_name")
+      assert {:ok, renamed} = Canvases.rename_canvas(canvas.id, user.id, "new_name")
+      assert renamed.name == "new_name"
+    end
+
+    test "returns error when user doesn't own canvas", %{user: user} do
+      user2 = user_fixture()
+      {:ok, canvas} = Canvases.create_canvas(user.id, "mine")
+      assert {:error, :not_found} = Canvases.rename_canvas(canvas.id, user2.id, "stolen")
+    end
+
+    test "returns error for missing canvas", %{user: user} do
+      assert {:error, :not_found} = Canvases.rename_canvas(0, user.id, "nope")
+    end
+  end
+
   describe "update_canvas_data/2" do
     test "updates data for existing canvas", %{user: user} do
       data1 = Serializer.encode(Canvas.new())

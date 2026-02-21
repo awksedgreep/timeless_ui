@@ -81,6 +81,21 @@ defmodule TimelessUI.Canvases do
   end
 
   @doc """
+  Rename a canvas. Only the owner can rename.
+  """
+  def rename_canvas(id, user_id, new_name) do
+    case Repo.get_by(CanvasRecord, id: id, user_id: user_id) do
+      nil ->
+        {:error, :not_found}
+
+      record ->
+        record
+        |> CanvasRecord.changeset(%{name: new_name})
+        |> Repo.update()
+    end
+  end
+
+  @doc """
   Get an existing canvas by user_id + name, or create one with empty data.
   """
   def get_or_create_canvas(user_id, name) do

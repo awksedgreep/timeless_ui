@@ -74,7 +74,8 @@ defmodule TimelessUIWeb.CanvasLive do
          can_edit: can_edit,
          is_owner: is_owner,
          show_share: false,
-         page_title: "TimelessUI Canvas",
+         renaming: false,
+         page_title: record.name,
          breadcrumbs: breadcrumbs,
          # Timeline / time-travel assigns
          timeline_mode: :live,
@@ -133,12 +134,33 @@ defmodule TimelessUIWeb.CanvasLive do
             >
               {elem(crumb, 1)}
             </.link>
-            <span :if={i == length(@breadcrumbs) - 1} class="canvas-breadcrumbs__current">
-              {elem(crumb, 1)}
-            </span>
           </span>
+          <span class="canvas-breadcrumbs__sep">/</span>
         </span>
-        <span :if={length(@breadcrumbs) > 1} class="canvas-toolbar__sep"></span>
+        <form
+          :if={@renaming}
+          phx-submit="save_name"
+          phx-click-away="cancel_rename"
+          class="canvas-toolbar__name-form"
+        >
+          <input
+            type="text"
+            name="name"
+            value={@canvas_name}
+            class="canvas-toolbar__name-input"
+            autofocus
+            phx-key="Escape"
+            phx-keydown="cancel_rename"
+          />
+        </form>
+        <span
+          :if={!@renaming}
+          class={"canvas-toolbar__name#{if @is_owner, do: " canvas-toolbar__name--editable", else: ""}"}
+          phx-click={if @is_owner, do: "start_rename"}
+        >
+          {@canvas_name}
+        </span>
+        <span class="canvas-toolbar__sep"></span>
         <span :if={!@can_edit} class="canvas-toolbar__badge canvas-toolbar__badge--readonly">
           View Only
         </span>
@@ -760,6 +782,41 @@ defmodule TimelessUIWeb.CanvasLive do
   def handle_event("select_all", _params, socket) do
     all_ids = socket.assigns.canvas.elements |> Map.keys() |> MapSet.new()
     {:noreply, assign(socket, selected_ids: all_ids)}
+  end
+
+  def handle_event("start_rename", _params, socket) do
+    {:noreply, assign(socket, renaming: true)}
+  end
+
+  def handle_event("cancel_rename", _params, socket) do
+    {:noreply, assign(socket, renaming: false)}
+  end
+
+  def handle_event("save_name", %{"name" => name}, socket) do
+    name = String.trim(name)
+
+    if name == "" do
+      {:noreply, assign(socket, renaming: false)}
+    else
+      case Canvases.rename_canvas(socket.assigns.canvas_id, socket.assigns.user_id, name) do
+        {:ok, _} ->
+          breadcrumbs = Canvases.breadcrumb_chain(socket.assigns.canvas_id)
+
+          {:noreply,
+           assign(socket,
+             canvas_name: name,
+             renaming: false,
+             page_title: name,
+             breadcrumbs: breadcrumbs
+           )}
+
+        {:error, _} ->
+          {:noreply,
+           socket
+           |> put_flash(:error, "Could not rename canvas")
+           |> assign(renaming: false)}
+      end
+    end
   end
 
   def handle_event("toggle_share", _params, socket) do
