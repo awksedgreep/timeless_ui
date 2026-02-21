@@ -689,6 +689,11 @@ defmodule TimelessUIWeb.CanvasLive do
     {:noreply, assign(socket, selected_ids: MapSet.new(), connect_from: nil)}
   end
 
+  def handle_event("select_all", _params, socket) do
+    all_ids = socket.assigns.canvas.elements |> Map.keys() |> MapSet.new()
+    {:noreply, assign(socket, selected_ids: all_ids)}
+  end
+
   def handle_event("toggle_share", _params, socket) do
     {:noreply, assign(socket, show_share: !socket.assigns.show_share)}
   end

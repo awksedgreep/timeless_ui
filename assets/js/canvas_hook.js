@@ -10,11 +10,12 @@
 const CanvasHook = {
   mounted() {
     this.svg = this.el;
-    this.dragging = null; // null | {type: "pan"|"element"|"handle", ...}
+    this.dragging = null; // null | {type: "pan"|"element"|"handle"|"marquee", ...}
     this.startClient = null; // {x, y} in client pixels
     this.lastClient = null;
     this.clickThreshold = 2; // px
     this.tempLine = null; // SVG line for connect mode
+    this.marqueeRect = null; // SVG rect for marquee selection
 
     this.svg.addEventListener("pointerdown", (e) => this.onPointerDown(e));
     this.svg.addEventListener("pointermove", (e) => this.onPointerMove(e));
@@ -36,26 +37,30 @@ const CanvasHook = {
   },
 
   updated() {
-    // After drop: server has patched new coordinates, remove the drag transform
+    // After drop: server has patched new coordinates, remove drag transforms
     if (this._pendingDrop) {
-      const group = this.svg.querySelector(
-        `[data-element-id="${this._pendingDrop.id}"]`,
-      );
-      if (group) group.removeAttribute("transform");
+      for (const id of this._pendingDrop.ids) {
+        const group = this.svg.querySelector(`[data-element-id="${id}"]`);
+        if (group) group.removeAttribute("transform");
+      }
       this._pendingDrop = null;
       return;
     }
     // Mid-drag: re-apply transform after LiveView patches
     if (this.dragging && this.dragging.type === "element") {
-      const group = this.svg.querySelector(`[data-element-id="${this.dragging.id}"]`);
-      if (group) {
-        group.parentNode.appendChild(group);
-        group.setAttribute(
-          "transform",
-          `translate(${this.dragging.totalDx}, ${this.dragging.totalDy})`,
-        );
-        this.dragging.group = group;
+      for (const id of this.dragging.groupIds) {
+        const group = this.svg.querySelector(`[data-element-id="${id}"]`);
+        if (group) {
+          group.parentNode.appendChild(group);
+          group.setAttribute(
+            "transform",
+            `translate(${this.dragging.totalDx}, ${this.dragging.totalDy})`,
+          );
+        }
       }
+      // Update primary group reference
+      const primaryGroup = this.svg.querySelector(`[data-element-id="${this.dragging.id}"]`);
+      if (primaryGroup) this.dragging.group = primaryGroup;
     }
   },
 
@@ -147,15 +152,40 @@ const CanvasHook = {
     const elGroup = e.target.closest("[data-element-id]");
     if (elGroup) {
       const id = elGroup.dataset.elementId;
-      // Move to end of SVG so it renders on top during drag
-      elGroup.parentNode.appendChild(elGroup);
+      // Collect all selected element groups for group drag
+      const selectedGroups = this.getSelectedElementGroups();
+      const isSelected = selectedGroups.some((g) => g.dataset.elementId === id);
+      // If element is part of a multi-selection, drag all; otherwise just this one
+      const groupIds =
+        isSelected && selectedGroups.length > 1
+          ? selectedGroups.map((g) => g.dataset.elementId)
+          : [id];
+      // Move dragged elements to end of SVG so they render on top
+      for (const gid of groupIds) {
+        const g = this.svg.querySelector(`[data-element-id="${gid}"]`);
+        if (g) g.parentNode.appendChild(g);
+      }
       const svgStart = this.clientToSvg(e.clientX, e.clientY);
-      this.dragging = { type: "element", id, group: elGroup, totalDx: 0, totalDy: 0, svgStart };
+      this.dragging = {
+        type: "element",
+        id,
+        group: elGroup,
+        groupIds,
+        totalDx: 0,
+        totalDy: 0,
+        svgStart,
+        shiftKey: e.shiftKey,
+      };
       return;
     }
 
-    // Otherwise it's a pan
-    this.dragging = { type: "pan" };
+    // In select mode, start marquee selection; otherwise pan
+    if (this.getMode() === "select") {
+      const svgStart = this.clientToSvg(e.clientX, e.clientY);
+      this.dragging = { type: "marquee", svgStart, shiftKey: e.shiftKey };
+    } else {
+      this.dragging = { type: "pan" };
+    }
   },
 
   onPointerMove(e) {
@@ -186,11 +216,20 @@ const CanvasHook = {
         const svgNow = this.clientToSvg(e.clientX, e.clientY);
         this.dragging.totalDx = svgNow.x - this.dragging.svgStart.x;
         this.dragging.totalDy = svgNow.y - this.dragging.svgStart.y;
-        this.dragging.group.setAttribute(
-          "transform",
-          `translate(${this.dragging.totalDx}, ${this.dragging.totalDy})`,
-        );
+        // Apply transform to all elements in the drag group
+        for (const gid of this.dragging.groupIds) {
+          const g = this.svg.querySelector(`[data-element-id="${gid}"]`);
+          if (g) {
+            g.setAttribute(
+              "transform",
+              `translate(${this.dragging.totalDx}, ${this.dragging.totalDy})`,
+            );
+          }
+        }
       }
+    } else if (this.dragging.type === "marquee") {
+      const svgNow = this.clientToSvg(e.clientX, e.clientY);
+      this.updateMarquee(this.dragging.svgStart, svgNow);
     } else if (this.dragging.type === "handle") {
       const delta = this.clientToSvgDelta(dxPx, dyPx);
       this.dragging.startWidth += delta.dx;
@@ -229,23 +268,47 @@ const CanvasHook = {
           height: vb.height,
         });
       }
+    } else if (this.dragging.type === "marquee") {
+      this.removeMarquee();
+      if (isClick) {
+        // Click on empty canvas - clear selection
+        const svgPt = this.clientToSvg(e.clientX, e.clientY);
+        this.pushEvent("canvas:click", { x: svgPt.x, y: svgPt.y });
+      } else {
+        // Compute which elements intersect the marquee
+        const svgEnd = this.clientToSvg(e.clientX, e.clientY);
+        const ids = this.getElementsInRect(this.dragging.svgStart, svgEnd);
+        if (ids.length > 0) {
+          this.pushEvent("marquee:select", { ids });
+        } else {
+          this.pushEvent("canvas:deselect", {});
+        }
+      }
     } else if (this.dragging.type === "element") {
       if (isClick) {
-        this.dragging.group.removeAttribute("transform");
-        this.pushEvent("element:select", { id: this.dragging.id });
+        // Remove transforms from all group members
+        for (const gid of this.dragging.groupIds) {
+          const g = this.svg.querySelector(`[data-element-id="${gid}"]`);
+          if (g) g.removeAttribute("transform");
+        }
+        if (this.dragging.shiftKey) {
+          this.pushEvent("element:shift_select", { id: this.dragging.id });
+        } else {
+          this.pushEvent("element:select", { id: this.dragging.id });
+        }
       } else if (this.getMode() !== "connect") {
         // Keep transform until server patches with new coordinates
-        this._pendingDrop = {
-          id: this.dragging.id,
-          group: this.dragging.group,
-        };
+        this._pendingDrop = { ids: this.dragging.groupIds };
         this.pushEvent("element:move", {
           id: this.dragging.id,
           dx: this.dragging.totalDx,
           dy: this.dragging.totalDy,
         });
       } else {
-        this.dragging.group.removeAttribute("transform");
+        for (const gid of this.dragging.groupIds) {
+          const g = this.svg.querySelector(`[data-element-id="${gid}"]`);
+          if (g) g.removeAttribute("transform");
+        }
       }
     } else if (this.dragging.type === "handle") {
       this.pushEvent("element:resize", {
@@ -318,22 +381,25 @@ const CanvasHook = {
       e.preventDefault();
       this.pushEvent("canvas:deselect", {});
       this.removeTempLine();
+    } else if (e.key === "a" && ctrl) {
+      e.preventDefault();
+      this.pushEvent("select_all", {});
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       const amount = e.shiftKey ? -1 : -(parseInt(this.svg.dataset.gridSize) || 20);
-      this.pushEvent("element:nudge", { id: "__selected__", dx: 0, dy: amount });
+      this.pushEvent("element:nudge", { dx: 0, dy: amount });
     } else if (e.key === "ArrowDown") {
       e.preventDefault();
       const amount = e.shiftKey ? 1 : parseInt(this.svg.dataset.gridSize) || 20;
-      this.pushEvent("element:nudge", { id: "__selected__", dx: 0, dy: amount });
+      this.pushEvent("element:nudge", { dx: 0, dy: amount });
     } else if (e.key === "ArrowLeft") {
       e.preventDefault();
       const amount = e.shiftKey ? -1 : -(parseInt(this.svg.dataset.gridSize) || 20);
-      this.pushEvent("element:nudge", { id: "__selected__", dx: amount, dy: 0 });
+      this.pushEvent("element:nudge", { dx: amount, dy: 0 });
     } else if (e.key === "ArrowRight") {
       e.preventDefault();
       const amount = e.shiftKey ? 1 : parseInt(this.svg.dataset.gridSize) || 20;
-      this.pushEvent("element:nudge", { id: "__selected__", dx: amount, dy: 0 });
+      this.pushEvent("element:nudge", { dx: amount, dy: 0 });
     } else if ((e.key === "+" || e.key === "=") && !ctrl) {
       e.preventDefault();
       this.zoomByFactor(0.9);
@@ -482,6 +548,83 @@ const CanvasHook = {
         el.setAttribute("transform", `translate(${nx}, ${ny})`);
       }
     });
+  },
+
+  // --- Marquee Selection ---
+
+  updateMarquee(start, current) {
+    const x = Math.min(start.x, current.x);
+    const y = Math.min(start.y, current.y);
+    const w = Math.abs(current.x - start.x);
+    const h = Math.abs(current.y - start.y);
+
+    if (!this.marqueeRect) {
+      this.marqueeRect = document.createElementNS(
+        "http://www.w3.org/2000/svg",
+        "rect",
+      );
+      this.marqueeRect.setAttribute("class", "canvas-marquee");
+      this.marqueeRect.setAttribute("fill", "rgba(99, 102, 241, 0.1)");
+      this.marqueeRect.setAttribute("stroke", "#6366f1");
+      this.marqueeRect.setAttribute("stroke-width", "1");
+      this.marqueeRect.setAttribute("stroke-dasharray", "4 2");
+      this.marqueeRect.setAttribute("pointer-events", "none");
+      this.svg.appendChild(this.marqueeRect);
+    }
+
+    this.marqueeRect.setAttribute("x", x);
+    this.marqueeRect.setAttribute("y", y);
+    this.marqueeRect.setAttribute("width", w);
+    this.marqueeRect.setAttribute("height", h);
+  },
+
+  removeMarquee() {
+    if (this.marqueeRect) {
+      this.marqueeRect.remove();
+      this.marqueeRect = null;
+    }
+  },
+
+  getSelectedElementGroups() {
+    return Array.from(
+      this.svg.querySelectorAll(".canvas-element--selected[data-element-id]"),
+    );
+  },
+
+  getElementsInRect(start, end) {
+    const minX = Math.min(start.x, end.x);
+    const minY = Math.min(start.y, end.y);
+    const maxX = Math.max(start.x, end.x);
+    const maxY = Math.max(start.y, end.y);
+
+    const ids = [];
+    this.svg.querySelectorAll("[data-element-id]").forEach((group) => {
+      const body = group.querySelector(".canvas-element__body");
+      if (!body) return;
+
+      let ex, ey, ew, eh;
+      if (body.tagName === "ellipse") {
+        const cx = parseFloat(body.getAttribute("cx"));
+        const cy = parseFloat(body.getAttribute("cy"));
+        const rx = parseFloat(body.getAttribute("rx"));
+        const ry = parseFloat(body.getAttribute("ry"));
+        ex = cx - rx;
+        ey = cy - ry;
+        ew = rx * 2;
+        eh = ry * 2;
+      } else {
+        ex = parseFloat(body.getAttribute("x"));
+        ey = parseFloat(body.getAttribute("y"));
+        ew = parseFloat(body.getAttribute("width"));
+        eh = parseFloat(body.getAttribute("height"));
+      }
+
+      // Check intersection (any overlap)
+      if (ex + ew > minX && ex < maxX && ey + eh > minY && ey < maxY) {
+        ids.push(group.dataset.elementId);
+      }
+    });
+    return ids;
   },
 
   resizeElementVisual(id, width, height) {
