@@ -124,7 +124,8 @@ defmodule TimelessUIWeb.CanvasComponents do
         label -> "#{label} | #{level_filter}"
       end
 
-    rows = Enum.take(assigns.stream_entries, 4)
+    max_rows = max(floor((assigns.element.height - 24) / 14), 1)
+    rows = Enum.take(assigns.stream_entries, max_rows)
 
     assigns = assign(assigns, log_title: log_title, rows: rows)
 
@@ -185,7 +186,8 @@ defmodule TimelessUIWeb.CanvasComponents do
         label -> "#{label} | #{service_filter}"
       end
 
-    rows = Enum.take(assigns.stream_entries, 4)
+    max_rows = max(floor((assigns.element.height - 24) / 14), 1)
+    rows = Enum.take(assigns.stream_entries, max_rows)
 
     assigns = assign(assigns, trace_title: trace_title, rows: rows)
 

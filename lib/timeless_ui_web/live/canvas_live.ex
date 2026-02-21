@@ -1204,7 +1204,8 @@ defmodule TimelessUIWeb.CanvasLive do
 
   defp stream_entries_for(%{type: type} = element, stream_data)
        when type in [:log_stream, :trace_stream] do
-    Enum.take(Map.get(stream_data, element.id, []), 4)
+    max_rows = max(floor((element.height - 24) / 14), 1)
+    Enum.take(Map.get(stream_data, element.id, []), max_rows)
   end
 
   defp stream_entries_for(_element, _stream_data), do: []
