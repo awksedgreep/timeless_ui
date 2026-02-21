@@ -39,6 +39,13 @@ defmodule TimelessUIWeb.Router do
     end
   end
 
+  # Root redirect: authenticated -> /canvases, unauthenticated -> /users/log-in
+  scope "/", TimelessUIWeb do
+    pipe_through [:browser]
+
+    get "/", PageController, :home
+  end
+
   ## Authentication routes
 
   scope "/", TimelessUIWeb do
@@ -46,7 +53,8 @@ defmodule TimelessUIWeb.Router do
 
     live_session :require_authenticated_user,
       on_mount: [{TimelessUIWeb.UserAuth, :require_authenticated}] do
-      live "/", CanvasLive, :index
+      live "/canvases", CanvasListLive, :index
+      live "/canvas/:id", CanvasLive, :show
       live "/users/settings", UserLive.Settings, :edit
       live "/users/settings/confirm-email/:token", UserLive.Settings, :confirm_email
     end

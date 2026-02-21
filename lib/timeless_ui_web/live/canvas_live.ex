@@ -4,6 +4,7 @@ defmodule TimelessUIWeb.CanvasLive do
   alias TimelessUI.Canvas
   alias TimelessUI.Canvas.{ViewBox, History, Element, Connection, Serializer}
   alias TimelessUI.Canvases
+  alias TimelessUI.Canvases.Policy
   alias TimelessUI.DataSource.Manager, as: StatusManager
   import TimelessUIWeb.CanvasComponents
 
@@ -22,53 +23,62 @@ defmodule TimelessUIWeb.CanvasLive do
   @tick_interval 200
 
   @impl true
-  def mount(_params, _session, socket) do
+  def mount(%{"id" => id_str}, _session, socket) do
     current_user = socket.assigns.current_scope.user
 
-    if connected?(socket) do
-      Phoenix.PubSub.subscribe(TimelessUI.PubSub, StatusManager.topic())
-      Phoenix.PubSub.subscribe(TimelessUI.PubSub, StatusManager.metric_topic())
-    end
+    with {canvas_id, ""} <- Integer.parse(id_str),
+         {:ok, record} <- Canvases.get_canvas(canvas_id),
+         :ok <- Policy.authorize(current_user, record, :view) do
+      can_edit = Policy.authorize(current_user, record, :edit) == :ok
+      is_owner = record.user_id == current_user.id || Policy.admin?(current_user)
 
-    canvas_name = "default"
-
-    # Find or create the user's "default" canvas
-    {canvas, canvas_id} =
-      case Canvases.get_or_create_canvas(current_user.id, canvas_name) do
-        {:ok, record} ->
-          case Serializer.decode(record.data) do
-            {:ok, c} -> {c, record.id}
-            {:error, _} -> {Canvas.new(), record.id}
-          end
+      if connected?(socket) do
+        Phoenix.PubSub.subscribe(TimelessUI.PubSub, StatusManager.topic())
+        Phoenix.PubSub.subscribe(TimelessUI.PubSub, StatusManager.metric_topic())
       end
 
-    history = History.new(canvas)
+      canvas =
+        case Serializer.decode(record.data) do
+          {:ok, c} -> c
+          {:error, _} -> Canvas.new()
+        end
 
-    if connected?(socket) and map_size(canvas.elements) > 0 do
-      StatusManager.register_elements(Map.values(canvas.elements))
+      history = History.new(canvas)
+
+      if connected?(socket) and map_size(canvas.elements) > 0 do
+        StatusManager.register_elements(Map.values(canvas.elements))
+      end
+
+      {:ok,
+       assign(socket,
+         history: history,
+         canvas: canvas,
+         selected_id: nil,
+         mode: :select,
+         place_type: :rect,
+         connect_from: nil,
+         canvas_name: record.name,
+         canvas_id: canvas_id,
+         user_id: current_user.id,
+         can_edit: can_edit,
+         is_owner: is_owner,
+         page_title: "TimelessUI Canvas",
+         # Timeline / time-travel assigns
+         timeline_mode: :live,
+         timeline_time: nil,
+         timeline_playing: false,
+         timeline_speed: 1.0,
+         timeline_range: nil,
+         playback_ref: nil,
+         graph_data: %{}
+       )}
+    else
+      _ ->
+        {:ok,
+         socket
+         |> put_flash(:error, "Canvas not found or access denied")
+         |> redirect(to: ~p"/canvases")}
     end
-
-    {:ok,
-     assign(socket,
-       history: history,
-       canvas: canvas,
-       selected_id: nil,
-       mode: :select,
-       place_type: :rect,
-       connect_from: nil,
-       canvas_name: canvas_name,
-       canvas_id: canvas_id,
-       user_id: current_user.id,
-       page_title: "TimelessUI Canvas",
-       # Timeline / time-travel assigns
-       timeline_mode: :live,
-       timeline_time: nil,
-       timeline_playing: false,
-       timeline_speed: 1.0,
-       timeline_range: nil,
-       playback_ref: nil,
-       graph_data: %{}
-     )}
   end
 
   @max_graph_points 60
@@ -80,6 +90,9 @@ defmodule TimelessUIWeb.CanvasLive do
     ~H"""
     <div class={"canvas-container#{if selected_object(@selected_id, @canvas) != nil, do: " canvas-container--panel-open", else: ""}"}>
       <div class="canvas-toolbar">
+        <span :if={!@can_edit} class="canvas-toolbar__badge canvas-toolbar__badge--readonly">
+          View Only
+        </span>
         <button
           phx-click="toggle_mode"
           phx-value-mode="select"
@@ -91,6 +104,7 @@ defmodule TimelessUIWeb.CanvasLive do
           phx-click="toggle_mode"
           phx-value-mode="place"
           class={"canvas-toolbar__btn#{if @mode == :place, do: " canvas-toolbar__btn--active", else: ""}"}
+          disabled={!@can_edit}
         >
           Place
         </button>
@@ -98,6 +112,7 @@ defmodule TimelessUIWeb.CanvasLive do
           phx-click="toggle_mode"
           phx-value-mode="connect"
           class={"canvas-toolbar__btn#{if @mode == :connect, do: " canvas-toolbar__btn--active", else: ""}"}
+          disabled={!@can_edit}
         >
           Connect
         </button>
@@ -133,14 +148,14 @@ defmodule TimelessUIWeb.CanvasLive do
         <button
           phx-click="canvas:undo"
           class="canvas-toolbar__btn"
-          disabled={!History.can_undo?(@history)}
+          disabled={!@can_edit || !History.can_undo?(@history)}
         >
           Undo
         </button>
         <button
           phx-click="canvas:redo"
           class="canvas-toolbar__btn"
-          disabled={!History.can_redo?(@history)}
+          disabled={!@can_edit || !History.can_redo?(@history)}
         >
           Redo
         </button>
@@ -148,6 +163,7 @@ defmodule TimelessUIWeb.CanvasLive do
         <button
           phx-click="canvas:save"
           class="canvas-toolbar__btn"
+          disabled={!@can_edit}
         >
           Save
         </button>
@@ -161,7 +177,7 @@ defmodule TimelessUIWeb.CanvasLive do
         <button
           phx-click="delete_selected"
           class="canvas-toolbar__btn canvas-toolbar__btn--danger"
-          disabled={is_nil(@selected_id)}
+          disabled={!@can_edit || is_nil(@selected_id)}
         >
           Delete
         </button>
@@ -429,24 +445,25 @@ defmodule TimelessUIWeb.CanvasLive do
   def handle_event("canvas:click", %{"x" => x, "y" => y}, socket) do
     case socket.assigns.mode do
       :place ->
-        type = socket.assigns.place_type
-        defaults = Element.defaults_for(type)
+        require_edit(socket, fn ->
+          type = socket.assigns.place_type
+          defaults = Element.defaults_for(type)
 
-        {canvas, _el} =
-          Canvas.add_element(socket.assigns.canvas, %{
-            type: type,
-            x: x / 1.0,
-            y: y / 1.0,
-            color: defaults.color,
-            width: defaults.width,
-            height: defaults.height,
-            label: "#{@type_labels[type] || type} #{socket.assigns.canvas.next_id}"
-          })
+          {canvas, _el} =
+            Canvas.add_element(socket.assigns.canvas, %{
+              type: type,
+              x: x / 1.0,
+              y: y / 1.0,
+              color: defaults.color,
+              width: defaults.width,
+              height: defaults.height,
+              label: "#{@type_labels[type] || type} #{socket.assigns.canvas.next_id}"
+            })
 
-        {:noreply, push_canvas(socket, canvas) |> schedule_autosave()}
+          {:noreply, push_canvas(socket, canvas) |> schedule_autosave()}
+        end)
 
       :connect ->
-        # Click on empty space cancels connect mode
         {:noreply, assign(socket, connect_from: nil)}
 
       :select ->
@@ -457,18 +474,20 @@ defmodule TimelessUIWeb.CanvasLive do
   def handle_event("element:select", %{"id" => id}, socket) do
     case socket.assigns.mode do
       :connect ->
-        case socket.assigns.connect_from do
-          nil ->
-            {:noreply, assign(socket, connect_from: id)}
+        require_edit(socket, fn ->
+          case socket.assigns.connect_from do
+            nil ->
+              {:noreply, assign(socket, connect_from: id)}
 
-          ^id ->
-            # Can't connect to self
-            {:noreply, assign(socket, connect_from: nil)}
+            ^id ->
+              # Can't connect to self
+              {:noreply, assign(socket, connect_from: nil)}
 
-          from_id ->
-            {canvas, _conn} = Canvas.add_connection(socket.assigns.canvas, from_id, id)
-            {:noreply, push_canvas(socket, canvas) |> assign(connect_from: nil) |> schedule_autosave()}
-        end
+            from_id ->
+              {canvas, _conn} = Canvas.add_connection(socket.assigns.canvas, from_id, id)
+              {:noreply, push_canvas(socket, canvas) |> assign(connect_from: nil) |> schedule_autosave()}
+          end
+        end)
 
       _ ->
         {:noreply, assign(socket, selected_id: id)}
@@ -480,29 +499,35 @@ defmodule TimelessUIWeb.CanvasLive do
   end
 
   def handle_event("element:move", %{"id" => id, "dx" => dx, "dy" => dy}, socket) do
-    canvas = Canvas.move_element(socket.assigns.canvas, id, dx / 1.0, dy / 1.0)
-    {:noreply, push_canvas(socket, canvas) |> schedule_autosave()}
+    require_edit(socket, fn ->
+      canvas = Canvas.move_element(socket.assigns.canvas, id, dx / 1.0, dy / 1.0)
+      {:noreply, push_canvas(socket, canvas) |> schedule_autosave()}
+    end)
   end
 
   def handle_event("element:resize", %{"id" => id, "width" => width, "height" => height}, socket) do
-    canvas = Canvas.resize_element(socket.assigns.canvas, id, width / 1.0, height / 1.0)
-    {:noreply, push_canvas(socket, canvas) |> schedule_autosave()}
+    require_edit(socket, fn ->
+      canvas = Canvas.resize_element(socket.assigns.canvas, id, width / 1.0, height / 1.0)
+      {:noreply, push_canvas(socket, canvas) |> schedule_autosave()}
+    end)
   end
 
   def handle_event("element:nudge", %{"id" => id_param, "dx" => dx, "dy" => dy}, socket) do
-    id = if id_param == "__selected__", do: socket.assigns.selected_id, else: id_param
+    require_edit(socket, fn ->
+      id = if id_param == "__selected__", do: socket.assigns.selected_id, else: id_param
 
-    case id do
-      nil ->
-        {:noreply, socket}
+      case id do
+        nil ->
+          {:noreply, socket}
 
-      "el-" <> _ ->
-        canvas = Canvas.move_element(socket.assigns.canvas, id, dx / 1.0, dy / 1.0)
-        {:noreply, push_canvas(socket, canvas) |> schedule_autosave()}
+        "el-" <> _ ->
+          canvas = Canvas.move_element(socket.assigns.canvas, id, dx / 1.0, dy / 1.0)
+          {:noreply, push_canvas(socket, canvas) |> schedule_autosave()}
 
-      _ ->
-        {:noreply, socket}
-    end
+        _ ->
+          {:noreply, socket}
+      end
+    end)
   end
 
   def handle_event("toggle_mode", %{"mode" => mode}, socket) do
@@ -524,18 +549,20 @@ defmodule TimelessUIWeb.CanvasLive do
   end
 
   def handle_event("delete_selected", _params, socket) do
-    case socket.assigns.selected_id do
-      nil ->
-        {:noreply, socket}
+    require_edit(socket, fn ->
+      case socket.assigns.selected_id do
+        nil ->
+          {:noreply, socket}
 
-      "conn-" <> _ = id ->
-        canvas = Canvas.remove_connection(socket.assigns.canvas, id)
-        {:noreply, push_canvas(socket, canvas) |> assign(selected_id: nil) |> schedule_autosave()}
+        "conn-" <> _ = id ->
+          canvas = Canvas.remove_connection(socket.assigns.canvas, id)
+          {:noreply, push_canvas(socket, canvas) |> assign(selected_id: nil) |> schedule_autosave()}
 
-      "el-" <> _ = id ->
-        canvas = Canvas.remove_element(socket.assigns.canvas, id)
-        {:noreply, push_canvas(socket, canvas) |> assign(selected_id: nil) |> schedule_autosave()}
-    end
+        "el-" <> _ = id ->
+          canvas = Canvas.remove_element(socket.assigns.canvas, id)
+          {:noreply, push_canvas(socket, canvas) |> assign(selected_id: nil) |> schedule_autosave()}
+      end
+    end)
   end
 
   def handle_event("canvas:deselect", _params, socket) do
@@ -543,65 +570,77 @@ defmodule TimelessUIWeb.CanvasLive do
   end
 
   def handle_event("canvas:undo", _params, socket) do
-    history = History.undo(socket.assigns.history)
-    {:noreply, assign(socket, history: history, canvas: history.present, selected_id: nil)}
+    require_edit(socket, fn ->
+      history = History.undo(socket.assigns.history)
+      {:noreply, assign(socket, history: history, canvas: history.present, selected_id: nil)}
+    end)
   end
 
   def handle_event("canvas:redo", _params, socket) do
-    history = History.redo(socket.assigns.history)
-    {:noreply, assign(socket, history: history, canvas: history.present, selected_id: nil)}
+    require_edit(socket, fn ->
+      history = History.redo(socket.assigns.history)
+      {:noreply, assign(socket, history: history, canvas: history.present, selected_id: nil)}
+    end)
   end
 
   # Properties panel updates
 
   def handle_event("property:update_element", %{"element_id" => id} = params, socket) do
-    attrs =
-      %{}
-      |> maybe_put(:label, params["label"])
-      |> maybe_put(:color, params["color"])
-      |> maybe_put_float(:x, params["x"])
-      |> maybe_put_float(:y, params["y"])
-      |> maybe_put_float(:width, params["width"])
-      |> maybe_put_float(:height, params["height"])
-      |> maybe_put_atom(:type, params["type"])
+    require_edit(socket, fn ->
+      attrs =
+        %{}
+        |> maybe_put(:label, params["label"])
+        |> maybe_put(:color, params["color"])
+        |> maybe_put_float(:x, params["x"])
+        |> maybe_put_float(:y, params["y"])
+        |> maybe_put_float(:width, params["width"])
+        |> maybe_put_float(:height, params["height"])
+        |> maybe_put_atom(:type, params["type"])
 
-    canvas = Canvas.update_element(socket.assigns.canvas, id, attrs)
-    {:noreply, push_canvas(socket, canvas) |> schedule_autosave()}
+      canvas = Canvas.update_element(socket.assigns.canvas, id, attrs)
+      {:noreply, push_canvas(socket, canvas) |> schedule_autosave()}
+    end)
   end
 
   def handle_event("property:update_meta", %{"element_id" => id} = params, socket) do
-    meta_fields = Element.meta_fields(socket.assigns.canvas.elements[id].type)
+    require_edit(socket, fn ->
+      meta_fields = Element.meta_fields(socket.assigns.canvas.elements[id].type)
 
-    new_meta =
-      Enum.reduce(meta_fields, socket.assigns.canvas.elements[id].meta, fn field, meta ->
-        case params[field] do
-          nil -> meta
-          "" -> Map.delete(meta, field)
-          val -> Map.put(meta, field, val)
-        end
-      end)
+      new_meta =
+        Enum.reduce(meta_fields, socket.assigns.canvas.elements[id].meta, fn field, meta ->
+          case params[field] do
+            nil -> meta
+            "" -> Map.delete(meta, field)
+            val -> Map.put(meta, field, val)
+          end
+        end)
 
-    canvas = Canvas.update_element(socket.assigns.canvas, id, %{meta: new_meta})
-    {:noreply, push_canvas(socket, canvas) |> schedule_autosave()}
+      canvas = Canvas.update_element(socket.assigns.canvas, id, %{meta: new_meta})
+      {:noreply, push_canvas(socket, canvas) |> schedule_autosave()}
+    end)
   end
 
   def handle_event("property:update_connection", %{"conn_id" => id} = params, socket) do
-    attrs =
-      %{}
-      |> maybe_put(:label, params["label"])
-      |> maybe_put(:color, params["color"])
-      |> maybe_put_atom(:style, params["style"])
+    require_edit(socket, fn ->
+      attrs =
+        %{}
+        |> maybe_put(:label, params["label"])
+        |> maybe_put(:color, params["color"])
+        |> maybe_put_atom(:style, params["style"])
 
-    canvas = Canvas.update_connection(socket.assigns.canvas, id, attrs)
-    {:noreply, push_canvas(socket, canvas) |> schedule_autosave()}
+      canvas = Canvas.update_connection(socket.assigns.canvas, id, attrs)
+      {:noreply, push_canvas(socket, canvas) |> schedule_autosave()}
+    end)
   end
 
   # Save/Load
 
   def handle_event("canvas:save", _params, socket) do
-    data = Serializer.encode(socket.assigns.canvas)
-    Canvases.update_canvas_data(socket.assigns.canvas_id, data)
-    {:noreply, socket}
+    require_edit(socket, fn ->
+      data = Serializer.encode(socket.assigns.canvas)
+      Canvases.update_canvas_data(socket.assigns.canvas_id, data)
+      {:noreply, socket}
+    end)
   end
 
   def handle_event("canvas:load", _params, socket) do
@@ -768,9 +807,22 @@ defmodule TimelessUIWeb.CanvasLive do
   end
 
   def handle_info(:autosave, socket) do
-    data = Serializer.encode(socket.assigns.canvas)
-    Canvases.update_canvas_data(socket.assigns.canvas_id, data)
+    if socket.assigns.can_edit do
+      data = Serializer.encode(socket.assigns.canvas)
+      Canvases.update_canvas_data(socket.assigns.canvas_id, data)
+    end
+
     {:noreply, socket}
+  end
+
+  # --- Guards ---
+
+  defp require_edit(socket, fun) do
+    if socket.assigns.can_edit do
+      fun.()
+    else
+      {:noreply, socket}
+    end
   end
 
   # --- Private helpers ---
