@@ -699,6 +699,21 @@ defmodule TimelessUIWeb.CanvasLive do
         end)
 
       canvas = Canvas.update_element(socket.assigns.canvas, id, %{meta: new_meta})
+
+      # Re-register stream with new filter opts when meta changes
+      el = canvas.elements[id]
+
+      case el.type do
+        :log_stream ->
+          StreamManager.register_log_stream(id, build_log_opts(new_meta))
+
+        :trace_stream ->
+          StreamManager.register_trace_stream(id, build_trace_opts(new_meta))
+
+        _ ->
+          :ok
+      end
+
       {:noreply, push_canvas(socket, canvas) |> schedule_autosave()}
     end)
   end
