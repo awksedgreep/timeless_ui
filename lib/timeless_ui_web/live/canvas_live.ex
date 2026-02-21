@@ -44,6 +44,10 @@ defmodule TimelessUIWeb.CanvasLive do
 
     history = History.new(canvas)
 
+    if connected?(socket) and map_size(canvas.elements) > 0 do
+      StatusManager.register_elements(Map.values(canvas.elements))
+    end
+
     {:ok,
      assign(socket,
        history: history,
