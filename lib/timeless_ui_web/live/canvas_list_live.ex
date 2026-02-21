@@ -43,6 +43,9 @@ defmodule TimelessUIWeb.CanvasListLive do
               <.link navigate={~p"/canvas/#{canvas.id}"} class="hover:underline">
                 {canvas.name}
               </.link>
+              <span :if={canvas.parent_id} class="badge badge-sm badge-ghost ml-1">
+                sub-canvas
+              </span>
             </h2>
             <p class="text-sm text-base-content/60">
               Updated {Calendar.strftime(canvas.updated_at, "%b %d, %Y %H:%M")}

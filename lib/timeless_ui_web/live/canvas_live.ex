@@ -20,7 +20,8 @@ defmodule TimelessUIWeb.CanvasLive do
     network: "Network",
     graph: "Graph",
     log_stream: "Logs",
-    trace_stream: "Traces"
+    trace_stream: "Traces",
+    canvas: "Canvas"
   }
 
   @tick_interval 200
@@ -57,6 +58,8 @@ defmodule TimelessUIWeb.CanvasLive do
           %{}
         end
 
+      breadcrumbs = Canvases.breadcrumb_chain(canvas_id)
+
       {:ok,
        assign(socket,
          history: history,
@@ -72,6 +75,7 @@ defmodule TimelessUIWeb.CanvasLive do
          is_owner: is_owner,
          show_share: false,
          page_title: "TimelessUI Canvas",
+         breadcrumbs: breadcrumbs,
          # Timeline / time-travel assigns
          timeline_mode: :live,
          timeline_time: nil,
@@ -102,7 +106,13 @@ defmodule TimelessUIWeb.CanvasLive do
     <div class={"canvas-container#{if sole_selected_object(@selected_ids, @canvas) != nil, do: " canvas-container--panel-open", else: ""}"}>
       <div class="canvas-toolbar">
         <span class="canvas-toolbar__logo" title="Timeless">
-          <svg width="28" height="16" viewBox="0 0 28 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <svg
+            width="28"
+            height="16"
+            viewBox="0 0 28 16"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+          >
             <path
               d="M8 2C4.5 2 2 4.7 2 8s2.5 6 6 6c2.2 0 4-1.2 5.5-3L14 10.5l.5.5c1.5 1.8 3.3 3 5.5 3 3.5 0 6-2.7 6-6s-2.5-6-6-6c-2.2 0-4 1.2-5.5 3L14 5.5 13.5 5C12 3.2 10.2 2 8 2z"
               stroke="#6366f1"
@@ -113,6 +123,22 @@ defmodule TimelessUIWeb.CanvasLive do
           </svg>
         </span>
         <span class="canvas-toolbar__sep"></span>
+        <span :if={length(@breadcrumbs) > 1} class="canvas-breadcrumbs">
+          <span :for={{crumb, i} <- Enum.with_index(@breadcrumbs)}>
+            <span :if={i > 0} class="canvas-breadcrumbs__sep">/</span>
+            <.link
+              :if={i < length(@breadcrumbs) - 1}
+              navigate={~p"/canvas/#{elem(crumb, 0)}"}
+              class="canvas-breadcrumbs__link"
+            >
+              {elem(crumb, 1)}
+            </.link>
+            <span :if={i == length(@breadcrumbs) - 1} class="canvas-breadcrumbs__current">
+              {elem(crumb, 1)}
+            </span>
+          </span>
+        </span>
+        <span :if={length(@breadcrumbs) > 1} class="canvas-toolbar__sep"></span>
         <span :if={!@can_edit} class="canvas-toolbar__badge canvas-toolbar__badge--readonly">
           View Only
         </span>
@@ -488,6 +514,20 @@ defmodule TimelessUIWeb.CanvasLive do
           type = socket.assigns.place_type
           defaults = Element.defaults_for(type)
 
+          # For canvas elements, atomically create the child canvas first
+          meta =
+            if type == :canvas do
+              case Canvases.create_child_canvas(
+                     socket.assigns.canvas_id,
+                     "Sub-canvas #{socket.assigns.canvas.next_id}"
+                   ) do
+                {:ok, child} -> %{"canvas_id" => to_string(child.id)}
+                {:error, _} -> %{}
+              end
+            else
+              %{}
+            end
+
           {canvas, el} =
             Canvas.add_element(socket.assigns.canvas, %{
               type: type,
@@ -496,7 +536,8 @@ defmodule TimelessUIWeb.CanvasLive do
               color: defaults.color,
               width: defaults.width,
               height: defaults.height,
-              label: "#{@type_labels[type] || type} #{socket.assigns.canvas.next_id}"
+              label: "#{@type_labels[type] || type} #{socket.assigns.canvas.next_id}",
+              meta: meta
             })
 
           maybe_register_stream(el)
@@ -534,6 +575,16 @@ defmodule TimelessUIWeb.CanvasLive do
 
       _ ->
         {:noreply, assign(socket, selected_ids: MapSet.new([id]))}
+    end
+  end
+
+  def handle_event("element:dblclick", %{"id" => id}, socket) do
+    case Map.get(socket.assigns.canvas.elements, id) do
+      %{type: :canvas, meta: %{"canvas_id" => canvas_id}} when canvas_id != "" ->
+        {:noreply, push_navigate(socket, to: ~p"/canvas/#{canvas_id}")}
+
+      _ ->
+        {:noreply, socket}
     end
   end
 

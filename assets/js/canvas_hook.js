@@ -28,6 +28,9 @@ const CanvasHook = {
     // Prevent context menu on canvas
     this.svg.addEventListener("contextmenu", (e) => e.preventDefault());
 
+    // Double-click to navigate into sub-canvases
+    this.svg.addEventListener("dblclick", (e) => this.onDoubleClick(e));
+
     this._zoomDebounce = null;
 
     // Keyboard shortcuts
@@ -427,6 +430,13 @@ const CanvasHook = {
     } else if (e.key === "l" || e.key === "L") {
       e.preventDefault();
       this.pushEvent("timeline:go_live", {});
+    }
+  },
+
+  onDoubleClick(e) {
+    const elGroup = e.target.closest("[data-element-id]");
+    if (elGroup) {
+      this.pushEvent("element:dblclick", { id: elGroup.dataset.elementId });
     }
   },
 

@@ -231,6 +231,35 @@ body:has(.canvas-container) {
   margin: 2px 4px;
 }
 
+/* Breadcrumbs */
+.canvas-breadcrumbs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.canvas-breadcrumbs__link {
+  color: var(--accent);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.canvas-breadcrumbs__link:hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
+}
+
+.canvas-breadcrumbs__current {
+  color: var(--text);
+}
+
+.canvas-breadcrumbs__sep {
+  color: var(--text-muted);
+  margin: 0 2px;
+}
+
 /* Type Palette */
 .canvas-type-palette {
   display: flex;

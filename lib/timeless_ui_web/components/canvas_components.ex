@@ -591,6 +591,58 @@ defmodule TimelessUIWeb.CanvasComponents do
     """
   end
 
+  defp element_icon(%{element: %{type: :canvas}} = assigns) do
+    # Stacked rectangles icon representing sub-canvas
+    assigns =
+      assign(assigns,
+        cx: assigns.element.x + assigns.element.width / 2,
+        cy: assigns.element.y + assigns.element.height / 2 - 10
+      )
+
+    ~H"""
+    <g
+      class="canvas-element__icon"
+      transform={"translate(#{@cx}, #{@cy}) scale(1.4) translate(-10, -10)"}
+    >
+      <rect
+        x="4"
+        y="0"
+        width="16"
+        height="12"
+        rx="1.5"
+        fill="none"
+        stroke="white"
+        stroke-width="1.2"
+        opacity="0.5"
+      />
+      <rect
+        x="2"
+        y="3"
+        width="16"
+        height="12"
+        rx="1.5"
+        fill="none"
+        stroke="white"
+        stroke-width="1.2"
+        opacity="0.7"
+      />
+      <rect
+        x="0"
+        y="6"
+        width="16"
+        height="12"
+        rx="1.5"
+        fill="none"
+        stroke="white"
+        stroke-width="1.2"
+        opacity="0.9"
+      />
+      <line x1="3" y1="10" x2="10" y2="10" stroke="white" stroke-width="0.8" opacity="0.5" />
+      <line x1="3" y1="13" x2="8" y2="13" stroke="white" stroke-width="0.8" opacity="0.5" />
+    </g>
+    """
+  end
+
   # Fallback for unknown types
   defp element_icon(assigns), do: ~H""
 

@@ -41,6 +41,46 @@ defmodule TimelessUI.Canvases do
   end
 
   @doc """
+  Create a child canvas under the given parent. Inherits the parent's user_id.
+  """
+  def create_child_canvas(parent_id, name) do
+    case Repo.get(CanvasRecord, parent_id) do
+      nil ->
+        {:error, :parent_not_found}
+
+      parent ->
+        %CanvasRecord{}
+        |> CanvasRecord.changeset(%{
+          user_id: parent.user_id,
+          name: name,
+          data: %{},
+          parent_id: parent.id
+        })
+        |> Repo.insert()
+    end
+  end
+
+  @doc """
+  Walk parent_id chain from a canvas up to root.
+  Returns `[{id, name}, ...]` ordered root-first.
+  """
+  def breadcrumb_chain(canvas_id) do
+    case Repo.get(CanvasRecord, canvas_id) do
+      nil -> []
+      record -> build_chain(record, [{record.id, record.name}])
+    end
+  end
+
+  defp build_chain(%{parent_id: nil}, acc), do: acc
+
+  defp build_chain(%{parent_id: parent_id}, acc) do
+    case Repo.get(CanvasRecord, parent_id) do
+      nil -> acc
+      parent -> build_chain(parent, [{parent.id, parent.name} | acc])
+    end
+  end
+
+  @doc """
   Get an existing canvas by user_id + name, or create one with empty data.
   """
   def get_or_create_canvas(user_id, name) do
