@@ -120,22 +120,25 @@ const CanvasHook = {
       const id = elGroup?.dataset.elementId;
       if (id) {
         const body = elGroup.querySelector(".canvas-element__body");
-        this.dragging = {
-          type: "handle",
-          id,
-          startWidth: parseFloat(body.getAttribute("width") || body.getAttribute("rx")) * 2 || 160,
-          startHeight: parseFloat(body.getAttribute("height") || body.getAttribute("ry")) * 2 || 80,
-        };
+        let w0 = parseFloat(body.getAttribute("width") || body.getAttribute("rx")) * 2 || 160;
+        let h0 = parseFloat(body.getAttribute("height") || body.getAttribute("ry")) * 2 || 80;
         // For database cylinders, use the rect portion
         const bodyRect = elGroup.querySelector(".canvas-element__body-rect");
         if (bodyRect) {
-          this.dragging.startWidth = parseFloat(bodyRect.getAttribute("width"));
-          this.dragging.startHeight =
-            parseFloat(bodyRect.getAttribute("height")) + 30; // Add ellipse caps
+          w0 = parseFloat(bodyRect.getAttribute("width"));
+          h0 = parseFloat(bodyRect.getAttribute("height")) + 30;
         } else if (body.tagName === "rect") {
-          this.dragging.startWidth = parseFloat(body.getAttribute("width"));
-          this.dragging.startHeight = parseFloat(body.getAttribute("height"));
+          w0 = parseFloat(body.getAttribute("width"));
+          h0 = parseFloat(body.getAttribute("height"));
         }
+        this.dragging = {
+          type: "handle",
+          id,
+          startWidth: w0,
+          startHeight: h0,
+          origWidth: w0,
+          origHeight: h0,
+        };
         return;
       }
     }
@@ -741,25 +744,29 @@ const CanvasHook = {
     // Icon (transform-based, positioned relative to element center)
     const icon = group.querySelector(".canvas-element__icon");
     if (icon) {
-      const t = icon.getAttribute("transform");
-      if (t) {
-        // Store original transform and body size on first resize
-        if (!icon._origTransform) {
-          icon._origTransform = t;
-          icon._origWidth = this.dragging.startWidth;
-          icon._origHeight = this.dragging.startHeight;
+      // Save original icon transform in this.dragging (survives DOM patches)
+      if (!this.dragging._iconOrig) {
+        const t = icon.getAttribute("transform");
+        if (t) {
+          const m = t.match(/translate\(\s*([^,)]+)[,\s]+([^)]+)\)(.*)/);
+          if (m) {
+            this.dragging._iconOrig = {
+              tx: parseFloat(m[1]),
+              ty: parseFloat(m[2]),
+              rest: m[3] || "",
+            };
+          }
         }
-        // Compute center shift from original to new size
-        const dCx = (width - icon._origWidth) / 2;
-        const dCy = (height - icon._origHeight) / 2;
-        // Shift the first translate in the transform string
-        const orig = icon._origTransform;
-        const m = orig.match(/translate\(\s*([^,)]+)[,\s]+([^)]+)\)(.*)/);
-        if (m) {
-          const newTx = parseFloat(m[1]) + dCx;
-          const newTy = parseFloat(m[2]) + dCy;
-          icon.setAttribute("transform", `translate(${newTx}, ${newTy})${m[3]}`);
-        }
+      }
+      if (this.dragging._iconOrig) {
+        const orig = this.dragging._iconOrig;
+        // Shift icon center by half the size delta
+        const dCx = (width - this.dragging.origWidth) / 2;
+        const dCy = (height - this.dragging.origHeight) / 2;
+        icon.setAttribute(
+          "transform",
+          `translate(${orig.tx + dCx}, ${orig.ty + dCy})${orig.rest}`,
+        );
       }
     }
   },
