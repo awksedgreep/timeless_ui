@@ -62,6 +62,9 @@ config :timeless_ui, TimelessUIWeb.Endpoint,
     ]
   ]
 
+# Disable swoosh api client in dev (use local adapter + /dev/mailbox)
+config :swoosh, :api_client, false
+
 # Enable dev routes for dashboard and mailbox
 config :timeless_ui, dev_routes: true
 
