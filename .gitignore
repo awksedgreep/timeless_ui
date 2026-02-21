@@ -39,3 +39,7 @@ npm-debug.log
 *.db
 *.db-*
 
+# Runtime data from timeless_stack (log/trace stream block files)
+/priv/log_stream/
+/priv/trace_stream/
+
