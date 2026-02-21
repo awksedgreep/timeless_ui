@@ -144,4 +144,61 @@ defmodule TimelessUI.CanvasesTest do
       assert {:error, :not_found} = Canvases.update_canvas_data(0, %{})
     end
   end
+
+  describe "access management" do
+    test "grant_access/3 creates access entry", %{user: user} do
+      user2 = user_fixture()
+      data = Serializer.encode(Canvas.new())
+      {:ok, canvas} = Canvases.save_canvas(user.id, "shared", data)
+
+      assert {:ok, access} = Canvases.grant_access(canvas.id, user2.id, :editor)
+      assert access.role == :editor
+    end
+
+    test "grant_access/3 upserts role on conflict", %{user: user} do
+      user2 = user_fixture()
+      data = Serializer.encode(Canvas.new())
+      {:ok, canvas} = Canvases.save_canvas(user.id, "shared", data)
+
+      {:ok, _} = Canvases.grant_access(canvas.id, user2.id, :viewer)
+      {:ok, updated} = Canvases.grant_access(canvas.id, user2.id, :editor)
+      assert updated.role == :editor
+    end
+
+    test "revoke_access/2 removes access", %{user: user} do
+      user2 = user_fixture()
+      data = Serializer.encode(Canvas.new())
+      {:ok, canvas} = Canvases.save_canvas(user.id, "shared", data)
+
+      {:ok, _} = Canvases.grant_access(canvas.id, user2.id, :editor)
+      assert {:ok, _} = Canvases.revoke_access(canvas.id, user2.id)
+      assert {:error, :not_found} = Canvases.revoke_access(canvas.id, user2.id)
+    end
+
+    test "list_access/1 returns access entries with users", %{user: user} do
+      user2 = user_fixture()
+      data = Serializer.encode(Canvas.new())
+      {:ok, canvas} = Canvases.save_canvas(user.id, "shared", data)
+
+      {:ok, _} = Canvases.grant_access(canvas.id, user2.id, :viewer)
+
+      accesses = Canvases.list_access(canvas.id)
+      assert length(accesses) == 1
+      assert hd(accesses).user.email == user2.email
+    end
+
+    test "list_accessible_canvases/1 includes owned and shared", %{user: user} do
+      user2 = user_fixture()
+      data = Serializer.encode(Canvas.new())
+
+      {:ok, _owned} = Canvases.save_canvas(user.id, "mine", data)
+      {:ok, shared} = Canvases.save_canvas(user2.id, "theirs", data)
+      {:ok, _} = Canvases.grant_access(shared.id, user.id, :viewer)
+
+      canvases = Canvases.list_accessible_canvases(user)
+      names = Enum.map(canvases, & &1.name)
+      assert "mine" in names
+      assert "theirs" in names
+    end
+  end
 end

@@ -1,7 +1,7 @@
 defmodule TimelessUI.Canvases do
   import Ecto.Query
   alias TimelessUI.Repo
-  alias TimelessUI.Canvases.CanvasRecord
+  alias TimelessUI.Canvases.{CanvasRecord, CanvasAccess}
 
   @doc """
   Get a canvas by ID. Auth is checked at the LiveView layer.
@@ -83,5 +83,62 @@ defmodule TimelessUI.Canvases do
         |> CanvasRecord.changeset(%{data: data})
         |> Repo.update()
     end
+  end
+
+  # --- Access management ---
+
+  @doc """
+  List all canvases a user can access (owned + shared).
+  """
+  def list_accessible_canvases(user) do
+    owned =
+      CanvasRecord
+      |> where([c], c.user_id == ^user.id)
+
+    shared_ids =
+      CanvasAccess
+      |> where([a], a.user_id == ^user.id)
+      |> select([a], a.canvas_id)
+
+    shared =
+      CanvasRecord
+      |> where([c], c.id in subquery(shared_ids))
+
+    union_query = union(owned, ^shared)
+
+    from(c in subquery(union_query), order_by: [asc: c.name])
+    |> Repo.all()
+  end
+
+  @doc """
+  Grant access to a canvas for a user. Upserts on conflict.
+  """
+  def grant_access(canvas_id, user_id, role) do
+    %CanvasAccess{}
+    |> CanvasAccess.changeset(%{canvas_id: canvas_id, user_id: user_id, role: role})
+    |> Repo.insert(
+      on_conflict: [set: [role: role]],
+      conflict_target: [:canvas_id, :user_id]
+    )
+  end
+
+  @doc """
+  Revoke access from a user for a canvas.
+  """
+  def revoke_access(canvas_id, user_id) do
+    case Repo.get_by(CanvasAccess, canvas_id: canvas_id, user_id: user_id) do
+      nil -> {:error, :not_found}
+      access -> Repo.delete(access)
+    end
+  end
+
+  @doc """
+  List all access entries for a canvas, preloading users.
+  """
+  def list_access(canvas_id) do
+    CanvasAccess
+    |> where([a], a.canvas_id == ^canvas_id)
+    |> preload(:user)
+    |> Repo.all()
   end
 end
