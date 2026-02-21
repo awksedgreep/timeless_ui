@@ -67,7 +67,8 @@ defmodule TimelessUI.Canvas.Serializer do
          "height" => el.height,
          "label" => el.label,
          "color" => el.color,
-         "meta" => el.meta
+         "meta" => el.meta,
+         "z_index" => el.z_index
        }}
     end)
   end
@@ -112,7 +113,8 @@ defmodule TimelessUI.Canvas.Serializer do
         label: data["label"] || "",
         color: data["color"] || "#4a9eff",
         meta: data["meta"] || %{},
-        status: :unknown
+        status: :unknown,
+        z_index: data["z_index"] || 0
       }
 
       {id, el}

@@ -98,10 +98,16 @@ defmodule TimelessUIWeb.CanvasComponents do
   end
 
   defp element_body(%{element: %{type: :graph}} = assigns) do
-    assigns =
-      assign(assigns,
-        metric_name: Map.get(assigns.element.meta, "metric_name", "metric")
-      )
+    metric_name = Map.get(assigns.element.meta, "metric_name", "metric")
+
+    graph_title =
+      case assigns.element.label do
+        nil -> metric_name
+        "" -> metric_name
+        label -> "#{label} | #{metric_name}"
+      end
+
+    assigns = assign(assigns, graph_title: graph_title)
 
     ~H"""
     <rect
@@ -124,14 +130,18 @@ defmodule TimelessUIWeb.CanvasComponents do
       stroke-linecap="round"
       class="canvas-graph__line"
     />
+    <clipPath id={"graph-clip-#{@element.id}"}>
+      <rect x={@element.x} y={@element.y} width={@element.width} height={@element.height} />
+    </clipPath>
     <text
       x={@element.x + 4}
       y={@element.y + 10}
       class="canvas-graph__title"
       fill="#94a3b8"
       font-size="8"
+      clip-path={"url(#graph-clip-#{@element.id})"}
     >
-      {@metric_name}
+      {@graph_title}
     </text>
     <text
       :if={@graph_value}
@@ -148,6 +158,8 @@ defmodule TimelessUIWeb.CanvasComponents do
   end
 
   defp element_body(assigns) do
+    assigns = assign(assigns, image_url: assigns.element.meta["image_url"])
+
     ~H"""
     <rect
       x={@element.x}
@@ -156,9 +168,29 @@ defmodule TimelessUIWeb.CanvasComponents do
       height={@element.height}
       rx="6"
       ry="6"
-      fill={@element.color}
+      fill={if @image_url && @image_url != "", do: "none", else: @element.color}
       class="canvas-element__body"
     />
+    <image
+      :if={@image_url && @image_url != ""}
+      x={@element.x}
+      y={@element.y}
+      width={@element.width}
+      height={@element.height}
+      href={@image_url}
+      preserveAspectRatio="xMidYMid slice"
+      clip-path={"url(#rect-clip-#{@element.id})"}
+    />
+    <clipPath :if={@image_url && @image_url != ""} id={"rect-clip-#{@element.id}"}>
+      <rect
+        x={@element.x}
+        y={@element.y}
+        width={@element.width}
+        height={@element.height}
+        rx="6"
+        ry="6"
+      />
+    </clipPath>
     """
   end
 
@@ -177,7 +209,10 @@ defmodule TimelessUIWeb.CanvasComponents do
       )
 
     ~H"""
-    <g class="canvas-element__icon" transform={"translate(#{@cx - 12}, #{@cy - 12})"}>
+    <g
+      class="canvas-element__icon"
+      transform={"translate(#{@cx}, #{@cy}) scale(1.4) translate(-12, -12)"}
+    >
       <rect
         x="0"
         y="0"
@@ -227,7 +262,10 @@ defmodule TimelessUIWeb.CanvasComponents do
       )
 
     ~H"""
-    <g class="canvas-element__icon" transform={"translate(#{@cx - 10}, #{@cy - 10})"}>
+    <g
+      class="canvas-element__icon"
+      transform={"translate(#{@cx}, #{@cy}) scale(1.4) translate(-10, -10)"}
+    >
       <path
         d="M10 3.5L11.5 1h-3L10 3.5zM10 16.5L8.5 19h3L10 16.5zM3.5 10L1 8.5v3L3.5 10zM16.5 10L19 11.5v-3L16.5 10zM4.5 5.5L2.5 3.5l-1 1L4.5 7.5 4.5 5.5zM15.5 14.5L17.5 16.5l1-1L15.5 12.5V14.5zM5.5 15.5L3.5 17.5l1 1L7.5 15.5H5.5zM14.5 4.5L16.5 2.5l-1-1L12.5 4.5H14.5z"
         fill="white"
@@ -247,7 +285,10 @@ defmodule TimelessUIWeb.CanvasComponents do
       )
 
     ~H"""
-    <g class="canvas-element__icon" transform={"translate(#{@cx - 12}, #{@cy - 8})"}>
+    <g
+      class="canvas-element__icon"
+      transform={"translate(#{@cx}, #{@cy}) scale(1.4) translate(-10, -8)"}
+    >
       <path
         d="M0 8 L8 8 L8 2 L16 2 M8 8 L8 8 L16 8 M8 8 L8 14 L16 14"
         fill="none"
@@ -302,7 +343,10 @@ defmodule TimelessUIWeb.CanvasComponents do
       )
 
     ~H"""
-    <g class="canvas-element__icon" transform={"translate(#{@cx - 7}, #{@cy - 10})"}>
+    <g
+      class="canvas-element__icon"
+      transform={"translate(#{@cx}, #{@cy}) scale(1.4) translate(-7, -10)"}
+    >
       <polygon points="8,0 2,10 7,10 5,20 13,8 8,8" fill="white" opacity="0.9" />
     </g>
     """
@@ -317,7 +361,10 @@ defmodule TimelessUIWeb.CanvasComponents do
       )
 
     ~H"""
-    <g class="canvas-element__icon" transform={"translate(#{@cx - 10}, #{@cy - 10})"}>
+    <g
+      class="canvas-element__icon"
+      transform={"translate(#{@cx}, #{@cy}) scale(1.4) translate(-10, -10)"}
+    >
       <circle cx="10" cy="10" r="9" fill="none" stroke="white" stroke-width="1.2" opacity="0.9" />
       <ellipse
         cx="10"
@@ -331,6 +378,29 @@ defmodule TimelessUIWeb.CanvasComponents do
       />
       <line x1="1" y1="7" x2="19" y2="7" stroke="white" stroke-width="0.8" opacity="0.6" />
       <line x1="1" y1="13" x2="19" y2="13" stroke="white" stroke-width="0.8" opacity="0.6" />
+    </g>
+    """
+  end
+
+  defp element_icon(%{element: %{type: :router}} = assigns) do
+    # Circle with 4 directional arrows — 40x40 icon
+    assigns =
+      assign(assigns,
+        cx: assigns.element.x + assigns.element.width / 2,
+        cy: assigns.element.y + assigns.element.height / 2 - 10
+      )
+
+    ~H"""
+    <g class="canvas-element__icon" transform={"translate(#{@cx - 20}, #{@cy - 20})"}>
+      <circle cx="20" cy="20" r="8" fill="none" stroke="white" stroke-width="2.5" opacity="0.9" />
+      <line x1="20" y1="0" x2="20" y2="12" stroke="white" stroke-width="2.5" opacity="0.9" />
+      <polygon points="14,6 20,0 26,6" fill="white" opacity="0.9" />
+      <line x1="20" y1="28" x2="20" y2="40" stroke="white" stroke-width="2.5" opacity="0.9" />
+      <polygon points="14,34 20,40 26,34" fill="white" opacity="0.9" />
+      <line x1="0" y1="20" x2="12" y2="20" stroke="white" stroke-width="2.5" opacity="0.9" />
+      <polygon points="6,14 0,20 6,26" fill="white" opacity="0.9" />
+      <line x1="28" y1="20" x2="40" y2="20" stroke="white" stroke-width="2.5" opacity="0.9" />
+      <polygon points="34,14 40,20 34,26" fill="white" opacity="0.9" />
     </g>
     """
   end

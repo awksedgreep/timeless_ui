@@ -162,19 +162,19 @@ defmodule TimelessUIWeb.CanvasLive do
         </button>
         <span class="canvas-toolbar__sep"></span>
         <button
-          phx-click="canvas:save"
+          phx-click="send_to_back"
           class="canvas-toolbar__btn"
-          disabled={!@can_edit}
+          disabled={!@can_edit || is_nil(@selected_id)}
         >
-          Save
+          Back
         </button>
         <button
-          phx-click="canvas:load"
+          phx-click="bring_to_front"
           class="canvas-toolbar__btn"
+          disabled={!@can_edit || is_nil(@selected_id)}
         >
-          Load
+          Front
         </button>
-        <span class="canvas-toolbar__sep"></span>
         <button
           phx-click="delete_selected"
           class="canvas-toolbar__btn canvas-toolbar__btn--danger"
@@ -244,7 +244,8 @@ defmodule TimelessUIWeb.CanvasLive do
         />
 
         <.canvas_element
-          :for={{_id, element} <- @canvas.elements}
+          :for={element <- sorted_elements(@canvas.elements)}
+          :key={element.id}
           element={element}
           selected={element.id == @selected_id}
           graph_points={graph_points_for(element, @graph_data)}
@@ -567,6 +568,38 @@ defmodule TimelessUIWeb.CanvasLive do
     {:noreply, update_canvas(socket, canvas)}
   end
 
+  def handle_event("send_to_back", _params, socket) do
+    require_edit(socket, fn ->
+      case socket.assigns.selected_id do
+        "el-" <> _ = id ->
+          min_z =
+            socket.assigns.canvas.elements |> Map.values() |> Enum.map(& &1.z_index) |> Enum.min()
+
+          canvas = Canvas.update_element(socket.assigns.canvas, id, %{z_index: min_z - 1})
+          {:noreply, push_canvas(socket, canvas) |> schedule_autosave()}
+
+        _ ->
+          {:noreply, socket}
+      end
+    end)
+  end
+
+  def handle_event("bring_to_front", _params, socket) do
+    require_edit(socket, fn ->
+      case socket.assigns.selected_id do
+        "el-" <> _ = id ->
+          max_z =
+            socket.assigns.canvas.elements |> Map.values() |> Enum.map(& &1.z_index) |> Enum.max()
+
+          canvas = Canvas.update_element(socket.assigns.canvas, id, %{z_index: max_z + 1})
+          {:noreply, push_canvas(socket, canvas) |> schedule_autosave()}
+
+        _ ->
+          {:noreply, socket}
+      end
+    end)
+  end
+
   def handle_event("delete_selected", _params, socket) do
     require_edit(socket, fn ->
       case socket.assigns.selected_id do
@@ -669,8 +702,14 @@ defmodule TimelessUIWeb.CanvasLive do
   def handle_event("canvas:save", _params, socket) do
     require_edit(socket, fn ->
       data = Serializer.encode(socket.assigns.canvas)
-      Canvases.update_canvas_data(socket.assigns.canvas_id, data)
-      {:noreply, socket}
+
+      case Canvases.update_canvas_data(socket.assigns.canvas_id, data) do
+        {:ok, _} ->
+          {:noreply, put_flash(socket, :info, "Canvas saved")}
+
+        {:error, _} ->
+          {:noreply, put_flash(socket, :error, "Failed to save canvas")}
+      end
     end)
   end
 
@@ -857,6 +896,10 @@ defmodule TimelessUIWeb.CanvasLive do
   end
 
   # --- Private helpers ---
+
+  defp sorted_elements(elements) do
+    elements |> Map.values() |> Enum.sort_by(&{&1.z_index, &1.id})
+  end
 
   defp graph_points_for(%{type: :graph} = element, graph_data) do
     case Map.get(graph_data, element.id) do

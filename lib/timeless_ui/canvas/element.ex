@@ -13,7 +13,8 @@ defmodule TimelessUI.Canvas.Element do
     label: "",
     color: "#4a9eff",
     meta: %{},
-    status: :unknown
+    status: :unknown,
+    z_index: 0
   ]
 
   @type t :: %__MODULE__{
@@ -26,7 +27,8 @@ defmodule TimelessUI.Canvas.Element do
           label: String.t(),
           color: String.t(),
           meta: map(),
-          status: :ok | :warning | :error | :unknown
+          status: :ok | :warning | :error | :unknown,
+          z_index: integer()
         }
 
   @element_types %{
@@ -37,8 +39,9 @@ defmodule TimelessUI.Canvas.Element do
     load_balancer: %{width: 140.0, height: 70.0, color: "#06b6d4"},
     queue: %{width: 120.0, height: 60.0, color: "#a855f7"},
     cache: %{width: 100.0, height: 80.0, color: "#ef4444"},
+    router: %{width: 100.0, height: 100.0, color: "#f97316"},
     network: %{width: 160.0, height: 60.0, color: "#64748b"},
-    graph: %{width: 120.0, height: 40.0, color: "#0ea5e9"}
+    graph: %{width: 120.0, height: 60.0, color: "#0ea5e9"}
   }
 
   @doc """
@@ -67,12 +70,14 @@ defmodule TimelessUI.Canvas.Element do
   end
 
   @meta_fields %{
+    rect: ~w(image_url),
     server: ~w(host ip os role),
     service: ~w(service_name version port),
     database: ~w(engine host port db_name),
     load_balancer: ~w(host algorithm port),
     queue: ~w(broker queue_name host),
     cache: ~w(engine host port),
+    router: ~w(host ip os role),
     network: ~w(host cidr vlan),
     graph: ~w(metric_name)
   }

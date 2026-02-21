@@ -1,5 +1,11 @@
 import Config
 
+# Use random data generator in dev for live graph/status data
+config :timeless_ui, :data_source,
+  module: TimelessUI.DataSource.Random,
+  config: %{},
+  poll_interval: 2_000
+
 # Configure your database
 config :timeless_ui, TimelessUI.Repo,
   database: Path.expand("../timeless_ui_dev.db", __DIR__),

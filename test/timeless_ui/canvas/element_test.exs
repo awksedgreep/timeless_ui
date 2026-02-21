@@ -70,7 +70,8 @@ defmodule TimelessUI.Canvas.ElementTest do
       assert :cache in types
       assert :network in types
       assert :graph in types
-      assert length(types) == 9
+      assert :router in types
+      assert length(types) == 10
     end
   end
 
@@ -109,8 +110,8 @@ defmodule TimelessUI.Canvas.ElementTest do
       assert "db_name" in fields
     end
 
-    test "returns empty list for rect type" do
-      assert Element.meta_fields(:rect) == []
+    test "returns image_url for rect type" do
+      assert Element.meta_fields(:rect) == ["image_url"]
     end
 
     test "returns empty list for unknown type" do
@@ -122,7 +123,7 @@ defmodule TimelessUI.Canvas.ElementTest do
     test "has compact sparkline dimensions" do
       el = Element.new(%{id: "1", type: :graph})
       assert el.width == 120.0
-      assert el.height == 40.0
+      assert el.height == 60.0
       assert el.color == "#0ea5e9"
     end
 

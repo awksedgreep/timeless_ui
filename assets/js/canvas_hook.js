@@ -35,6 +35,30 @@ const CanvasHook = {
 
   },
 
+  updated() {
+    // After drop: server has patched new coordinates, remove the drag transform
+    if (this._pendingDrop) {
+      const group = this.svg.querySelector(
+        `[data-element-id="${this._pendingDrop.id}"]`,
+      );
+      if (group) group.removeAttribute("transform");
+      this._pendingDrop = null;
+      return;
+    }
+    // Mid-drag: re-apply transform after LiveView patches
+    if (this.dragging && this.dragging.type === "element") {
+      const group = this.svg.querySelector(`[data-element-id="${this.dragging.id}"]`);
+      if (group) {
+        group.parentNode.appendChild(group);
+        group.setAttribute(
+          "transform",
+          `translate(${this.dragging.totalDx}, ${this.dragging.totalDy})`,
+        );
+        this.dragging.group = group;
+      }
+    }
+  },
+
   destroyed() {
     document.removeEventListener("keydown", this._onKeyDown);
   },
@@ -123,7 +147,10 @@ const CanvasHook = {
     const elGroup = e.target.closest("[data-element-id]");
     if (elGroup) {
       const id = elGroup.dataset.elementId;
-      this.dragging = { type: "element", id, group: elGroup };
+      // Move to end of SVG so it renders on top during drag
+      elGroup.parentNode.appendChild(elGroup);
+      const svgStart = this.clientToSvg(e.clientX, e.clientY);
+      this.dragging = { type: "element", id, group: elGroup, totalDx: 0, totalDy: 0, svgStart };
       return;
     }
 
@@ -155,8 +182,14 @@ const CanvasHook = {
     } else if (this.dragging.type === "element") {
       // Don't drag elements in connect mode
       if (this.getMode() !== "connect") {
-        const delta = this.clientToSvgDelta(dxPx, dyPx);
-        this.moveElementVisual(this.dragging.group, delta.dx, delta.dy);
+        // Compute total delta from absolute SVG positions (no accumulation drift)
+        const svgNow = this.clientToSvg(e.clientX, e.clientY);
+        this.dragging.totalDx = svgNow.x - this.dragging.svgStart.x;
+        this.dragging.totalDy = svgNow.y - this.dragging.svgStart.y;
+        this.dragging.group.setAttribute(
+          "transform",
+          `translate(${this.dragging.totalDx}, ${this.dragging.totalDy})`,
+        );
       }
     } else if (this.dragging.type === "handle") {
       const delta = this.clientToSvgDelta(dxPx, dyPx);
@@ -198,14 +231,21 @@ const CanvasHook = {
       }
     } else if (this.dragging.type === "element") {
       if (isClick) {
+        this.dragging.group.removeAttribute("transform");
         this.pushEvent("element:select", { id: this.dragging.id });
       } else if (this.getMode() !== "connect") {
-        const totalDelta = this.clientToSvgDelta(totalDxPx, totalDyPx);
+        // Keep transform until server patches with new coordinates
+        this._pendingDrop = {
+          id: this.dragging.id,
+          group: this.dragging.group,
+        };
         this.pushEvent("element:move", {
           id: this.dragging.id,
-          dx: totalDelta.dx,
-          dy: totalDelta.dy,
+          dx: this.dragging.totalDx,
+          dy: this.dragging.totalDy,
         });
+      } else {
+        this.dragging.group.removeAttribute("transform");
       }
     } else if (this.dragging.type === "handle") {
       this.pushEvent("element:resize", {
@@ -402,20 +442,37 @@ const CanvasHook = {
   // --- Visual Updates (optimistic, no server) ---
 
   moveElementVisual(group, dx, dy) {
-    // Generalized: move all elements with x/y or cx/cy attributes
+    // Skip elements inside transform-based icon groups (they use local coords)
+    const insideTransform = (el) => el.closest(".canvas-element__icon");
+
     group.querySelectorAll("[x]").forEach((el) => {
-      el.setAttribute("x", parseFloat(el.getAttribute("x")) + dx);
+      if (!insideTransform(el))
+        el.setAttribute("x", parseFloat(el.getAttribute("x")) + dx);
     });
     group.querySelectorAll("[y]").forEach((el) => {
-      el.setAttribute("y", parseFloat(el.getAttribute("y")) + dy);
+      if (!insideTransform(el))
+        el.setAttribute("y", parseFloat(el.getAttribute("y")) + dy);
     });
     group.querySelectorAll("[cx]").forEach((el) => {
-      el.setAttribute("cx", parseFloat(el.getAttribute("cx")) + dx);
+      if (!insideTransform(el))
+        el.setAttribute("cx", parseFloat(el.getAttribute("cx")) + dx);
     });
     group.querySelectorAll("[cy]").forEach((el) => {
-      el.setAttribute("cy", parseFloat(el.getAttribute("cy")) + dy);
+      if (!insideTransform(el))
+        el.setAttribute("cy", parseFloat(el.getAttribute("cy")) + dy);
     });
-    // Move transform-based icons
+    // Move polyline/polygon points (graph lines only, skip icon internals)
+    group.querySelectorAll("polyline[points], polygon[points]").forEach((el) => {
+      if (insideTransform(el)) return;
+      const pts = el.getAttribute("points").trim();
+      if (!pts) return;
+      const shifted = pts.split(/\s+/).map((pair) => {
+        const [px, py] = pair.split(",");
+        return `${parseFloat(px) + dx},${parseFloat(py) + dy}`;
+      }).join(" ");
+      el.setAttribute("points", shifted);
+    });
+    // Move transform-based icons as a whole
     group.querySelectorAll("[transform]").forEach((el) => {
       const t = el.getAttribute("transform");
       const match = t.match(/translate\(([^,]+),\s*([^)]+)\)/);
