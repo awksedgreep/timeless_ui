@@ -24,8 +24,7 @@ defmodule TimelessUIWeb.CanvasListLive do
     <div class="max-w-4xl mx-auto p-8">
       <div class="flex items-center justify-between mb-8">
         <h1 class="text-2xl font-bold">
-          My Canvases
-          <span :if={@is_admin} class="badge badge-primary ml-2">Admin</span>
+          My Canvases <span :if={@is_admin} class="badge badge-primary ml-2">Admin</span>
         </h1>
         <button phx-click="new_canvas" class="btn btn-primary">
           New Canvas

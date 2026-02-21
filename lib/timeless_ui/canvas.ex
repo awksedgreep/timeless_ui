@@ -132,7 +132,10 @@ defmodule TimelessUI.Canvas do
       id = "conn-#{canvas.next_conn_id}"
 
       conn =
-        struct!(Connection, Map.merge(attrs, %{id: id, source_id: source_id, target_id: target_id}))
+        struct!(
+          Connection,
+          Map.merge(attrs, %{id: id, source_id: source_id, target_id: target_id})
+        )
 
       canvas = %{
         canvas

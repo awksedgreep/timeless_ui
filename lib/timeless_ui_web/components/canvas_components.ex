@@ -170,12 +170,47 @@ defmodule TimelessUIWeb.CanvasComponents do
 
   defp element_icon(%{element: %{type: :server}} = assigns) do
     # Rack lines + power dot
-    assigns = assign(assigns, cx: assigns.element.x + assigns.element.width / 2, cy: assigns.element.y + assigns.element.height / 2 - 10)
+    assigns =
+      assign(assigns,
+        cx: assigns.element.x + assigns.element.width / 2,
+        cy: assigns.element.y + assigns.element.height / 2 - 10
+      )
+
     ~H"""
     <g class="canvas-element__icon" transform={"translate(#{@cx - 12}, #{@cy - 12})"}>
-      <rect x="0" y="0" width="24" height="7" rx="1" fill="none" stroke="white" stroke-width="1.2" opacity="0.9" />
-      <rect x="0" y="9" width="24" height="7" rx="1" fill="none" stroke="white" stroke-width="1.2" opacity="0.9" />
-      <rect x="0" y="18" width="24" height="7" rx="1" fill="none" stroke="white" stroke-width="1.2" opacity="0.9" />
+      <rect
+        x="0"
+        y="0"
+        width="24"
+        height="7"
+        rx="1"
+        fill="none"
+        stroke="white"
+        stroke-width="1.2"
+        opacity="0.9"
+      />
+      <rect
+        x="0"
+        y="9"
+        width="24"
+        height="7"
+        rx="1"
+        fill="none"
+        stroke="white"
+        stroke-width="1.2"
+        opacity="0.9"
+      />
+      <rect
+        x="0"
+        y="18"
+        width="24"
+        height="7"
+        rx="1"
+        fill="none"
+        stroke="white"
+        stroke-width="1.2"
+        opacity="0.9"
+      />
       <circle cx="20" cy="3.5" r="1.5" fill="#22c55e" />
       <circle cx="20" cy="12.5" r="1.5" fill="#22c55e" />
       <circle cx="20" cy="21.5" r="1.5" fill="#22c55e" />
@@ -185,10 +220,19 @@ defmodule TimelessUIWeb.CanvasComponents do
 
   defp element_icon(%{element: %{type: :service}} = assigns) do
     # Gear/cog
-    assigns = assign(assigns, cx: assigns.element.x + assigns.element.width / 2, cy: assigns.element.y + assigns.element.height / 2 - 8)
+    assigns =
+      assign(assigns,
+        cx: assigns.element.x + assigns.element.width / 2,
+        cy: assigns.element.y + assigns.element.height / 2 - 8
+      )
+
     ~H"""
     <g class="canvas-element__icon" transform={"translate(#{@cx - 10}, #{@cy - 10})"}>
-      <path d="M10 3.5L11.5 1h-3L10 3.5zM10 16.5L8.5 19h3L10 16.5zM3.5 10L1 8.5v3L3.5 10zM16.5 10L19 11.5v-3L16.5 10zM4.5 5.5L2.5 3.5l-1 1L4.5 7.5 4.5 5.5zM15.5 14.5L17.5 16.5l1-1L15.5 12.5V14.5zM5.5 15.5L3.5 17.5l1 1L7.5 15.5H5.5zM14.5 4.5L16.5 2.5l-1-1L12.5 4.5H14.5z" fill="white" opacity="0.9" />
+      <path
+        d="M10 3.5L11.5 1h-3L10 3.5zM10 16.5L8.5 19h3L10 16.5zM3.5 10L1 8.5v3L3.5 10zM16.5 10L19 11.5v-3L16.5 10zM4.5 5.5L2.5 3.5l-1 1L4.5 7.5 4.5 5.5zM15.5 14.5L17.5 16.5l1-1L15.5 12.5V14.5zM5.5 15.5L3.5 17.5l1 1L7.5 15.5H5.5zM14.5 4.5L16.5 2.5l-1-1L12.5 4.5H14.5z"
+        fill="white"
+        opacity="0.9"
+      />
       <circle cx="10" cy="10" r="4" fill="none" stroke="white" stroke-width="1.5" opacity="0.9" />
     </g>
     """
@@ -196,10 +240,22 @@ defmodule TimelessUIWeb.CanvasComponents do
 
   defp element_icon(%{element: %{type: :load_balancer}} = assigns) do
     # Branching arrows
-    assigns = assign(assigns, cx: assigns.element.x + assigns.element.width / 2, cy: assigns.element.y + assigns.element.height / 2 - 8)
+    assigns =
+      assign(assigns,
+        cx: assigns.element.x + assigns.element.width / 2,
+        cy: assigns.element.y + assigns.element.height / 2 - 8
+      )
+
     ~H"""
     <g class="canvas-element__icon" transform={"translate(#{@cx - 12}, #{@cy - 8})"}>
-      <path d="M0 8 L8 8 L8 2 L16 2 M8 8 L8 8 L16 8 M8 8 L8 14 L16 14" fill="none" stroke="white" stroke-width="1.5" stroke-linecap="round" opacity="0.9" />
+      <path
+        d="M0 8 L8 8 L8 2 L16 2 M8 8 L8 8 L16 8 M8 8 L8 14 L16 14"
+        fill="none"
+        stroke="white"
+        stroke-width="1.5"
+        stroke-linecap="round"
+        opacity="0.9"
+      />
       <polygon points="16,0 20,2 16,4" fill="white" opacity="0.9" />
       <polygon points="16,6 20,8 16,10" fill="white" opacity="0.9" />
       <polygon points="16,12 20,14 16,16" fill="white" opacity="0.9" />
@@ -209,10 +265,25 @@ defmodule TimelessUIWeb.CanvasComponents do
 
   defp element_icon(%{element: %{type: :queue}} = assigns) do
     # Pipeline dividers
-    assigns = assign(assigns, cx: assigns.element.x + assigns.element.width / 2, cy: assigns.element.y + assigns.element.height / 2 - 8)
+    assigns =
+      assign(assigns,
+        cx: assigns.element.x + assigns.element.width / 2,
+        cy: assigns.element.y + assigns.element.height / 2 - 8
+      )
+
     ~H"""
     <g class="canvas-element__icon" transform={"translate(#{@cx - 14}, #{@cy - 6})"}>
-      <rect x="0" y="0" width="28" height="12" rx="2" fill="none" stroke="white" stroke-width="1.2" opacity="0.9" />
+      <rect
+        x="0"
+        y="0"
+        width="28"
+        height="12"
+        rx="2"
+        fill="none"
+        stroke="white"
+        stroke-width="1.2"
+        opacity="0.9"
+      />
       <line x1="7" y1="0" x2="7" y2="12" stroke="white" stroke-width="1" opacity="0.6" />
       <line x1="14" y1="0" x2="14" y2="12" stroke="white" stroke-width="1" opacity="0.6" />
       <line x1="21" y1="0" x2="21" y2="12" stroke="white" stroke-width="1" opacity="0.6" />
@@ -224,7 +295,12 @@ defmodule TimelessUIWeb.CanvasComponents do
 
   defp element_icon(%{element: %{type: :cache}} = assigns) do
     # Lightning bolt
-    assigns = assign(assigns, cx: assigns.element.x + assigns.element.width / 2, cy: assigns.element.y + assigns.element.height / 2 - 8)
+    assigns =
+      assign(assigns,
+        cx: assigns.element.x + assigns.element.width / 2,
+        cy: assigns.element.y + assigns.element.height / 2 - 8
+      )
+
     ~H"""
     <g class="canvas-element__icon" transform={"translate(#{@cx - 7}, #{@cy - 10})"}>
       <polygon points="8,0 2,10 7,10 5,20 13,8 8,8" fill="white" opacity="0.9" />
@@ -234,11 +310,25 @@ defmodule TimelessUIWeb.CanvasComponents do
 
   defp element_icon(%{element: %{type: :network}} = assigns) do
     # Globe/mesh
-    assigns = assign(assigns, cx: assigns.element.x + assigns.element.width / 2, cy: assigns.element.y + assigns.element.height / 2 - 6)
+    assigns =
+      assign(assigns,
+        cx: assigns.element.x + assigns.element.width / 2,
+        cy: assigns.element.y + assigns.element.height / 2 - 6
+      )
+
     ~H"""
     <g class="canvas-element__icon" transform={"translate(#{@cx - 10}, #{@cy - 10})"}>
       <circle cx="10" cy="10" r="9" fill="none" stroke="white" stroke-width="1.2" opacity="0.9" />
-      <ellipse cx="10" cy="10" rx="4" ry="9" fill="none" stroke="white" stroke-width="1" opacity="0.7" />
+      <ellipse
+        cx="10"
+        cy="10"
+        rx="4"
+        ry="9"
+        fill="none"
+        stroke="white"
+        stroke-width="1"
+        opacity="0.7"
+      />
       <line x1="1" y1="7" x2="19" y2="7" stroke="white" stroke-width="0.8" opacity="0.6" />
       <line x1="1" y1="13" x2="19" y2="13" stroke="white" stroke-width="0.8" opacity="0.6" />
     </g>
@@ -271,13 +361,19 @@ defmodule TimelessUIWeb.CanvasComponents do
       data-connection-id={@connection.id}
     >
       <line
-        x1={@x1} y1={@y1} x2={@x2} y2={@y2}
+        x1={@x1}
+        y1={@y1}
+        x2={@x2}
+        y2={@y2}
         stroke="transparent"
         stroke-width="12"
         class="canvas-connection__hit"
       />
       <line
-        x1={@x1} y1={@y1} x2={@x2} y2={@y2}
+        x1={@x1}
+        y1={@y1}
+        x2={@x2}
+        y2={@y2}
         stroke={@connection.color}
         stroke-width="2"
         stroke-dasharray={@dash}

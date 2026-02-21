@@ -502,7 +502,9 @@ defmodule TimelessUIWeb.CanvasLive do
 
             from_id ->
               {canvas, _conn} = Canvas.add_connection(socket.assigns.canvas, from_id, id)
-              {:noreply, push_canvas(socket, canvas) |> assign(connect_from: nil) |> schedule_autosave()}
+
+              {:noreply,
+               push_canvas(socket, canvas) |> assign(connect_from: nil) |> schedule_autosave()}
           end
         end)
 
@@ -573,11 +575,15 @@ defmodule TimelessUIWeb.CanvasLive do
 
         "conn-" <> _ = id ->
           canvas = Canvas.remove_connection(socket.assigns.canvas, id)
-          {:noreply, push_canvas(socket, canvas) |> assign(selected_id: nil) |> schedule_autosave()}
+
+          {:noreply,
+           push_canvas(socket, canvas) |> assign(selected_id: nil) |> schedule_autosave()}
 
         "el-" <> _ = id ->
           canvas = Canvas.remove_element(socket.assigns.canvas, id)
-          {:noreply, push_canvas(socket, canvas) |> assign(selected_id: nil) |> schedule_autosave()}
+
+          {:noreply,
+           push_canvas(socket, canvas) |> assign(selected_id: nil) |> schedule_autosave()}
       end
     end)
   end
@@ -854,13 +860,21 @@ defmodule TimelessUIWeb.CanvasLive do
 
   defp graph_points_for(%{type: :graph} = element, graph_data) do
     case Map.get(graph_data, element.id) do
-      nil -> ""
-      [] -> ""
+      nil ->
+        ""
+
+      [] ->
+        ""
+
       points ->
         # Points are stored newest-first; reverse for left-to-right rendering
         points = Enum.reverse(points)
         count = length(points)
-        {min_val, max_val} = Enum.min_max_by(points, &elem(&1, 1)) |> then(fn {min, max} -> {elem(min, 1), elem(max, 1)} end)
+
+        {min_val, max_val} =
+          Enum.min_max_by(points, &elem(&1, 1))
+          |> then(fn {min, max} -> {elem(min, 1), elem(max, 1)} end)
+
         val_range = max(max_val - min_val, 0.1)
         padding = 14
 
@@ -868,7 +882,11 @@ defmodule TimelessUIWeb.CanvasLive do
         |> Enum.with_index()
         |> Enum.map(fn {{_ts, val}, i} ->
           x = element.x + i / max(count - 1, 1) * element.width
-          y = element.y + padding + (1 - (val - min_val) / val_range) * (element.height - padding - 2)
+
+          y =
+            element.y + padding +
+              (1 - (val - min_val) / val_range) * (element.height - padding - 2)
+
           "#{Float.round(x, 1)},#{Float.round(y, 1)}"
         end)
         |> Enum.join(" ")
@@ -894,6 +912,7 @@ defmodule TimelessUIWeb.CanvasLive do
     graph_data =
       Enum.reduce(graph_elements, socket.assigns.graph_data, fn {id, element}, acc ->
         metric_name = Map.get(element.meta, "metric_name", "default")
+
         points =
           Enum.map(0..(@max_graph_points - 1), fn i ->
             point_time = DateTime.add(time, -i * 2, :second)

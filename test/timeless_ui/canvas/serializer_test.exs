@@ -19,8 +19,12 @@ defmodule TimelessUI.Canvas.SerializerTest do
 
     test "canvas with elements roundtrips" do
       canvas = Canvas.new(snap_to_grid: false)
-      {canvas, _} = Canvas.add_element(canvas, %{label: "Server", type: :server, x: 100.0, y: 200.0})
-      {canvas, _} = Canvas.add_element(canvas, %{label: "DB", type: :database, x: 300.0, y: 400.0})
+
+      {canvas, _} =
+        Canvas.add_element(canvas, %{label: "Server", type: :server, x: 100.0, y: 200.0})
+
+      {canvas, _} =
+        Canvas.add_element(canvas, %{label: "DB", type: :database, x: 300.0, y: 400.0})
 
       data = Serializer.encode(canvas)
       {:ok, decoded} = Serializer.decode(data)
@@ -37,7 +41,9 @@ defmodule TimelessUI.Canvas.SerializerTest do
       canvas = Canvas.new(snap_to_grid: false)
       {canvas, el1} = Canvas.add_element(canvas, %{label: "A"})
       {canvas, el2} = Canvas.add_element(canvas, %{label: "B"})
-      {canvas, _} = Canvas.add_connection(canvas, el1.id, el2.id, %{label: "conn", style: :dashed})
+
+      {canvas, _} =
+        Canvas.add_connection(canvas, el1.id, el2.id, %{label: "conn", style: :dashed})
 
       data = Serializer.encode(canvas)
       {:ok, decoded} = Serializer.decode(data)

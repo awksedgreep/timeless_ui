@@ -76,7 +76,9 @@ defmodule TimelessUI.DataSource.Manager do
     ds_config = Application.get_env(:timeless_ui, :data_source, [])
     module = Keyword.get(ds_config, :module, opts[:module] || @default_module)
     config = Keyword.get(ds_config, :config, opts[:config] || %{})
-    poll_interval = Keyword.get(ds_config, :poll_interval, opts[:poll_interval] || @default_poll_interval)
+
+    poll_interval =
+      Keyword.get(ds_config, :poll_interval, opts[:poll_interval] || @default_poll_interval)
 
     case module.init(config) do
       {:ok, ds_state} ->
@@ -115,7 +117,9 @@ defmodule TimelessUI.DataSource.Manager do
       {element, elements} ->
         {:ok, ds_state} = state.module.unsubscribe(state.ds_state, element)
         last_statuses = Map.delete(state.last_statuses, element_id)
-        {:noreply, %{state | ds_state: ds_state, elements: elements, last_statuses: last_statuses}}
+
+        {:noreply,
+         %{state | ds_state: ds_state, elements: elements, last_statuses: last_statuses}}
     end
   end
 

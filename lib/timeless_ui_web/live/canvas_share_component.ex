@@ -52,7 +52,10 @@ defmodule TimelessUIWeb.CanvasShareComponent do
         Not shared with anyone yet.
       </div>
 
-      <div :for={access <- @accesses} class="flex items-center justify-between py-2 border-b border-base-300">
+      <div
+        :for={access <- @accesses}
+        class="flex items-center justify-between py-2 border-b border-base-300"
+      >
         <div>
           <span class="font-medium">{access.user.email}</span>
           <span class={"badge badge-sm ml-2 #{role_badge_class(access.role)}"}>

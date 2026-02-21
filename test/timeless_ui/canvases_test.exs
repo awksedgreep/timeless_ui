@@ -68,7 +68,9 @@ defmodule TimelessUI.CanvasesTest do
     test "canvas survives encode -> save -> load -> decode", %{user: user} do
       canvas = Canvas.new()
       {canvas, _el} = Canvas.add_element(canvas, %{type: :server, x: 50.0, y: 75.0, label: "Web"})
-      {canvas, _el} = Canvas.add_element(canvas, %{type: :database, x: 300.0, y: 75.0, label: "DB"})
+
+      {canvas, _el} =
+        Canvas.add_element(canvas, %{type: :database, x: 300.0, y: 75.0, label: "DB"})
 
       data = Serializer.encode(canvas)
       {:ok, saved} = Canvases.save_canvas(user.id, "roundtrip", data)
