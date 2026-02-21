@@ -65,7 +65,10 @@ defmodule TimelessUI.MixProject do
       {:dns_cluster, "~> 0.2.0"},
       {:swoosh, "~> 1.4"},
       {:bandit, "~> 1.5"},
-      {:timeless_stack, path: "../timeless_stack"}
+      {:timeless_stack, path: "../timeless_stack"},
+      {:opentelemetry_phoenix, "~> 2.0"},
+      {:opentelemetry_bandit, "~> 0.3.0"},
+      {:opentelemetry_ecto, "~> 1.2"}
     ]
   end
 

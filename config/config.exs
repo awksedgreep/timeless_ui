@@ -66,8 +66,8 @@ config :logger, :default_formatter,
 config :timeless_ui, TimelessUI.Mailer, adapter: Swoosh.Adapters.Local
 
 # Route our spans into TimelessTraces (local store + subscriber notifications)
-# rather than the default OTLP exporter which we don't have installed
 config :opentelemetry,
+  resource: [service: [name: "timeless_ui"]],
   traces_exporter: {TimelessTraces.Exporter, []}
 
 # Use Jason for JSON parsing in Phoenix
