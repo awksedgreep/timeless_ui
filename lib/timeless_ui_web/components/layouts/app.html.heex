@@ -1,1 +1,5 @@
-{@inner_content}
+<.flash kind={:info} flash={@flash} />
+<.flash kind={:error} flash={@flash} />
+<main>
+  {render_slot(@inner_block)}
+</main>
