@@ -3,9 +3,37 @@ defmodule TimelessUI.StreamManagerTest do
 
   alias TimelessUI.StreamManager
 
+  defmodule FakeLogBackend do
+    @doc "subscribe/1 that blocks forever (mimics real backend)."
+    def subscribe(_opts) do
+      receive do
+        :stop -> :ok
+      end
+    end
+  end
+
+  defmodule FakeTraceBackend do
+    def subscribe(_opts) do
+      receive do
+        :stop -> :ok
+      end
+    end
+  end
+
   setup do
+    # Configure fake backends for this test
+    Application.put_env(:timeless_ui, :stream_backends,
+      log: FakeLogBackend,
+      trace: FakeTraceBackend
+    )
+
     name = :"stream_mgr_#{System.unique_integer([:positive])}"
     {:ok, pid} = StreamManager.start_link(name: name)
+
+    on_exit(fn ->
+      Application.delete_env(:timeless_ui, :stream_backends)
+    end)
+
     %{server: name, pid: pid}
   end
 
@@ -27,6 +55,26 @@ defmodule TimelessUI.StreamManagerTest do
 
     test "get_buffer returns empty list initially", %{server: server} do
       StreamManager.register_trace_stream("el-2", [], server)
+      assert [] = StreamManager.get_buffer("el-2", server)
+    end
+  end
+
+  describe "no backend configured" do
+    setup do
+      Application.delete_env(:timeless_ui, :stream_backends)
+
+      name = :"stream_mgr_nobackend_#{System.unique_integer([:positive])}"
+      {:ok, pid} = StreamManager.start_link(name: name)
+      %{server: name, pid: pid}
+    end
+
+    test "register_log_stream is a no-op", %{server: server} do
+      assert :ok = StreamManager.register_log_stream("el-1", [], server)
+      assert [] = StreamManager.get_buffer("el-1", server)
+    end
+
+    test "register_trace_stream is a no-op", %{server: server} do
+      assert :ok = StreamManager.register_trace_stream("el-2", [], server)
       assert [] = StreamManager.get_buffer("el-2", server)
     end
   end

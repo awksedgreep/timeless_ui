@@ -3,9 +3,16 @@ defmodule TimelessUI.StreamManager do
   GenServer that manages live log and trace stream subscriptions.
 
   Each canvas element of type :log_stream or :trace_stream registers here.
-  A dedicated Task per element subscribes via the Registry-based APIs in
-  TimelessLogs/TimelessTraces (which bind to the calling process), then
-  forwards messages to this GenServer for buffering and PubSub broadcast.
+  A dedicated Task per element subscribes via the configured stream backend,
+  then forwards messages to this GenServer for buffering and PubSub broadcast.
+
+  Backends are configured via application env:
+
+      config :timeless_ui, :stream_backends,
+        log: TimelessLogs,
+        trace: TimelessTraces
+
+  When no backend is configured for a type, registration is a no-op.
   """
 
   use GenServer
@@ -23,7 +30,7 @@ defmodule TimelessUI.StreamManager do
 
   @doc """
   Register a log stream subscription for a canvas element.
-  Opts are passed to TimelessLogs.subscribe/1 (e.g. level: :error, metadata: %{}).
+  Opts are passed to the log backend's subscribe/1.
   """
   def register_log_stream(element_id, opts \\ [], server \\ __MODULE__) do
     GenServer.call(server, {:register, :log, element_id, opts})
@@ -31,7 +38,7 @@ defmodule TimelessUI.StreamManager do
 
   @doc """
   Register a trace stream subscription for a canvas element.
-  Opts are passed to TimelessTraces.subscribe/1 (e.g. name: "...", kind: :server).
+  Opts are passed to the trace backend's subscribe/1.
   """
   def register_trace_stream(element_id, opts \\ [], server \\ __MODULE__) do
     GenServer.call(server, {:register, :trace, element_id, opts})
@@ -61,19 +68,26 @@ defmodule TimelessUI.StreamManager do
 
   @impl true
   def handle_call({:register, type, element_id, opts}, _from, state) do
-    # Unregister existing subscription for this element if any
-    state = do_unregister(state, element_id)
+    case stream_backend(type) do
+      nil ->
+        # No backend configured — no-op
+        {:reply, :ok, state}
 
-    manager = self()
+      backend ->
+        # Unregister existing subscription for this element if any
+        state = do_unregister(state, element_id)
 
-    task_pid =
-      spawn_link(fn ->
-        subscribe_and_forward(type, element_id, opts, manager)
-      end)
+        manager = self()
 
-    sub = %{type: type, task_pid: task_pid, buffer: [], opts: opts}
-    state = put_in(state, [:subscriptions, element_id], sub)
-    {:reply, :ok, state}
+        task_pid =
+          spawn_link(fn ->
+            subscribe_and_forward(backend, type, element_id, opts, manager)
+          end)
+
+        sub = %{type: type, task_pid: task_pid, buffer: [], opts: opts}
+        state = put_in(state, [:subscriptions, element_id], sub)
+        {:reply, :ok, state}
+    end
   end
 
   def handle_call({:unregister, element_id}, _from, state) do
@@ -138,6 +152,11 @@ defmodule TimelessUI.StreamManager do
 
   # --- Private ---
 
+  defp stream_backend(type) do
+    backends = Application.get_env(:timeless_ui, :stream_backends, [])
+    Keyword.get(backends, type) || backends[type]
+  end
+
   defp do_unregister(state, element_id) do
     case Map.pop(state.subscriptions, element_id) do
       {nil, _subs} ->
@@ -149,16 +168,9 @@ defmodule TimelessUI.StreamManager do
     end
   end
 
-  defp subscribe_and_forward(:log, element_id, opts, manager) do
-    TimelessLogs.subscribe(opts)
-
-    receive_loop(:log, element_id, manager)
-  end
-
-  defp subscribe_and_forward(:trace, element_id, opts, manager) do
-    TimelessTraces.subscribe(opts)
-
-    receive_loop(:trace, element_id, manager)
+  defp subscribe_and_forward(backend, type, element_id, opts, manager) do
+    backend.subscribe(opts)
+    receive_loop(type, element_id, manager)
   end
 
   defp receive_loop(:log, element_id, manager) do

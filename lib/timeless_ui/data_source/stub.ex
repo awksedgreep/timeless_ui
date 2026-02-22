@@ -28,6 +28,9 @@ defmodule TimelessUI.DataSource.Stub do
   def metric_at(_state, _element, _metric, _time), do: :no_data
 
   @impl true
+  def metric_range(_state, _element, _metric, _from, _to), do: {:ok, []}
+
+  @impl true
   def status_at(_state, _element, _time), do: :unknown
 
   @impl true

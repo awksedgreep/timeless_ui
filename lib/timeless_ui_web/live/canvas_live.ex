@@ -25,7 +25,7 @@ defmodule TimelessUIWeb.CanvasLive do
     text: "Text"
   }
 
-  @tick_interval 200
+  # @tick_interval removed — playback no longer used
 
   @impl true
   def mount(%{"id" => id_str}, _session, socket) do
@@ -78,16 +78,18 @@ defmodule TimelessUIWeb.CanvasLive do
          renaming: false,
          page_title: record.name,
          breadcrumbs: breadcrumbs,
-         # Timeline / time-travel assigns
+         # Timeline assigns
          timeline_mode: :live,
          timeline_time: nil,
-         timeline_playing: false,
-         timeline_speed: 1.0,
-         timeline_range: nil,
-         playback_ref: nil,
+         timeline_span: 300,
+         timeline_data_range: nil,
          graph_data: %{},
-         stream_data: stream_data
-       )}
+         stream_data: stream_data,
+         clipboard: [],
+         paste_offset: 20
+       )
+       |> refresh_data_range()
+       |> fill_graph_data_at(DateTime.utc_now())}
     else
       _ ->
         {:ok,
@@ -332,9 +334,8 @@ defmodule TimelessUIWeb.CanvasLive do
       <.timeline_bar
         timeline_mode={@timeline_mode}
         timeline_time={@timeline_time}
-        timeline_playing={@timeline_playing}
-        timeline_speed={@timeline_speed}
-        timeline_range={@timeline_range}
+        timeline_span={@timeline_span}
+        timeline_data_range={@timeline_data_range}
       />
 
       <div class="canvas-zoom-indicator">
@@ -492,18 +493,6 @@ defmodule TimelessUIWeb.CanvasLive do
     end)
   end
 
-  defp start_playback(socket) do
-    ref = Process.send_after(self(), :timeline_tick, @tick_interval)
-    assign(socket, playback_ref: ref, timeline_playing: true)
-  end
-
-  defp stop_playback(socket) do
-    if socket.assigns.playback_ref do
-      Process.cancel_timer(socket.assigns.playback_ref)
-    end
-
-    assign(socket, playback_ref: nil, timeline_playing: false)
-  end
 
   # --- Event Handlers ---
 
@@ -784,6 +773,60 @@ defmodule TimelessUIWeb.CanvasLive do
     {:noreply, assign(socket, selected_ids: all_ids)}
   end
 
+  def handle_event("canvas:copy", _params, socket) do
+    element_ids =
+      socket.assigns.selected_ids
+      |> Enum.filter(&String.starts_with?(&1, "el-"))
+
+    templates =
+      Enum.map(element_ids, &Map.get(socket.assigns.canvas.elements, &1))
+      |> Enum.reject(&is_nil/1)
+
+    {:noreply, assign(socket, clipboard: templates, paste_offset: 20)}
+  end
+
+  def handle_event("canvas:cut", _params, socket) do
+    require_edit(socket, fn ->
+      element_ids =
+        socket.assigns.selected_ids
+        |> Enum.filter(&String.starts_with?(&1, "el-"))
+
+      templates =
+        Enum.map(element_ids, &Map.get(socket.assigns.canvas.elements, &1))
+        |> Enum.reject(&is_nil/1)
+
+      canvas = Canvas.remove_elements(socket.assigns.canvas, element_ids)
+
+      {:noreply,
+       push_canvas(socket, canvas)
+       |> assign(clipboard: templates, paste_offset: 20, selected_ids: MapSet.new())
+       |> schedule_autosave()}
+    end)
+  end
+
+  def handle_event("canvas:paste", _params, socket) do
+    require_edit(socket, fn ->
+      case socket.assigns.clipboard do
+        [] ->
+          {:noreply, socket}
+
+        templates ->
+          offset = socket.assigns.paste_offset
+
+          {canvas, new_ids} =
+            Canvas.duplicate_elements(socket.assigns.canvas, templates, offset)
+
+          {:noreply,
+           push_canvas(socket, canvas)
+           |> assign(
+             selected_ids: MapSet.new(new_ids),
+             paste_offset: offset + 20
+           )
+           |> schedule_autosave()}
+      end
+    end)
+  end
+
   def handle_event("start_rename", _params, socket) do
     {:noreply, assign(socket, renaming: true)}
   end
@@ -950,41 +993,17 @@ defmodule TimelessUIWeb.CanvasLive do
 
   # --- Timeline event handlers ---
 
-  def handle_event("timeline:enter", _params, socket) do
-    case StatusManager.time_range() do
-      :empty ->
-        {:noreply, socket}
-
-      {start_time, _end_time} = range ->
-        statuses = StatusManager.statuses_at(start_time)
-        canvas = apply_statuses(socket.assigns.canvas, statuses)
-
-        {:noreply,
-         socket
-         |> update_canvas(canvas)
-         |> assign(
-           timeline_mode: :historical,
-           timeline_time: start_time,
-           timeline_range: range
-         )
-         |> fill_graph_data_at(start_time)}
-    end
-  end
-
   def handle_event("timeline:go_live", _params, socket) do
     {:noreply,
      socket
-     |> stop_playback()
-     |> assign(
-       timeline_mode: :live,
-       timeline_time: nil,
-       timeline_range: nil
-     )}
+     |> assign(timeline_mode: :live, timeline_time: nil)
+     |> refresh_data_range()
+     |> fill_graph_data_at(DateTime.utc_now())}
   end
 
-  def handle_event("timeline:scrub", %{"time" => time_ms_str}, socket) do
+  def handle_event("timeline:change", %{"_target" => ["time"]} = params, socket) do
     time_ms =
-      case time_ms_str do
+      case params["time"] do
         val when is_binary(val) ->
           {ms, _} = Integer.parse(val)
           ms
@@ -1000,30 +1019,29 @@ defmodule TimelessUIWeb.CanvasLive do
     {:noreply,
      socket
      |> update_canvas(canvas)
-     |> assign(timeline_time: time)
-     |> fill_graph_data_at(time)}
+     |> assign(timeline_mode: :historical, timeline_time: time)
+     |> fill_graph_data_at(time)
+     |> fill_stream_data_at(time)}
   end
 
-  def handle_event("timeline:play_pause", _params, socket) do
-    if socket.assigns.timeline_mode != :historical do
-      {:noreply, socket}
-    else
-      if socket.assigns.timeline_playing do
-        {:noreply, stop_playback(socket)}
-      else
-        {:noreply, start_playback(socket)}
+  def handle_event("timeline:change", %{"_target" => ["span"]} = params, socket) do
+    span =
+      case Integer.parse(params["span"] || "") do
+        {s, _} -> s
+        :error -> 300
       end
-    end
+
+    socket = assign(socket, timeline_span: span)
+    time = socket.assigns.timeline_time || DateTime.utc_now()
+
+    {:noreply,
+     socket
+     |> fill_graph_data_at(time)
+     |> fill_stream_data_at(time)}
   end
 
-  def handle_event("timeline:set_speed", %{"speed" => speed_str}, socket) do
-    speed =
-      case Float.parse(speed_str) do
-        {f, _} -> f
-        :error -> 1.0
-      end
-
-    {:noreply, assign(socket, timeline_speed: speed)}
+  def handle_event("timeline:change", _params, socket) do
+    {:noreply, socket}
   end
 
   # --- Info handlers ---
@@ -1053,57 +1071,29 @@ defmodule TimelessUIWeb.CanvasLive do
   end
 
   def handle_info({:stream_entry, element_id, entry_map}, socket) do
-    stream_data = socket.assigns.stream_data
-    entries = Map.get(stream_data, element_id, [])
-    entries = Enum.take([entry_map | entries], @max_stream_entries)
-    stream_data = Map.put(stream_data, element_id, entries)
-    {:noreply, assign(socket, stream_data: stream_data)}
+    if socket.assigns.timeline_mode == :live do
+      stream_data = socket.assigns.stream_data
+      entries = Map.get(stream_data, element_id, [])
+      entries = Enum.take([entry_map | entries], @max_stream_entries)
+      stream_data = Map.put(stream_data, element_id, entries)
+      {:noreply, assign(socket, stream_data: stream_data)}
+    else
+      {:noreply, socket}
+    end
   end
 
   def handle_info({:stream_span, element_id, span_map}, socket) do
-    stream_data = socket.assigns.stream_data
-    entries = Map.get(stream_data, element_id, [])
-    entries = Enum.take([span_map | entries], @max_stream_entries)
-    stream_data = Map.put(stream_data, element_id, entries)
-    {:noreply, assign(socket, stream_data: stream_data)}
-  end
-
-  def handle_info(:timeline_tick, socket) do
-    if socket.assigns.timeline_mode != :historical or not socket.assigns.timeline_playing do
-      {:noreply, assign(socket, playback_ref: nil)}
+    if socket.assigns.timeline_mode == :live do
+      stream_data = socket.assigns.stream_data
+      entries = Map.get(stream_data, element_id, [])
+      entries = Enum.take([span_map | entries], @max_stream_entries)
+      stream_data = Map.put(stream_data, element_id, entries)
+      {:noreply, assign(socket, stream_data: stream_data)}
     else
-      advance_ms = round(@tick_interval * socket.assigns.timeline_speed)
-      current_ms = DateTime.to_unix(socket.assigns.timeline_time, :millisecond)
-      new_ms = current_ms + advance_ms
-
-      {_start, end_time} = socket.assigns.timeline_range
-      end_ms = DateTime.to_unix(end_time, :millisecond)
-
-      if new_ms >= end_ms do
-        # Reached end of range
-        statuses = StatusManager.statuses_at(end_time)
-        canvas = apply_statuses(socket.assigns.canvas, statuses)
-
-        {:noreply,
-         socket
-         |> stop_playback()
-         |> update_canvas(canvas)
-         |> assign(timeline_time: end_time)
-         |> fill_graph_data_at(end_time)}
-      else
-        new_time = DateTime.from_unix!(new_ms, :millisecond)
-        statuses = StatusManager.statuses_at(new_time)
-        canvas = apply_statuses(socket.assigns.canvas, statuses)
-        ref = Process.send_after(self(), :timeline_tick, @tick_interval)
-
-        {:noreply,
-         socket
-         |> update_canvas(canvas)
-         |> assign(timeline_time: new_time, playback_ref: ref)
-         |> fill_graph_data_at(new_time)}
-      end
+      {:noreply, socket}
     end
   end
+
 
   def handle_info(:autosave, socket) do
     if socket.assigns.can_edit do
@@ -1181,25 +1171,145 @@ defmodule TimelessUIWeb.CanvasLive do
       socket.assigns.canvas.elements
       |> Enum.filter(fn {_id, el} -> el.type == :graph end)
 
+    span = socket.assigns.timeline_span
+    from = DateTime.add(time, -span, :second)
+
     graph_data =
       Enum.reduce(graph_elements, socket.assigns.graph_data, fn {id, element}, acc ->
         metric_name = Map.get(element.meta, "metric_name", "default")
 
         points =
-          Enum.map(0..(@max_graph_points - 1), fn i ->
-            point_time = DateTime.add(time, -i * 2, :second)
-            ts = DateTime.to_unix(point_time, :millisecond)
+          case StatusManager.metric_range(id, metric_name, from, time) do
+            {:ok, pts} when pts != [] ->
+              downsample(pts, @max_graph_points)
 
-            case StatusManager.metric_at(id, metric_name, point_time) do
-              {:ok, val} -> {ts, val}
-              :no_data -> {ts, 0.0}
-            end
-          end)
+            _ ->
+              []
+          end
 
         Map.put(acc, id, points)
       end)
 
     assign(socket, graph_data: graph_data)
+  end
+
+  # Downsample a list of points to at most max_count, evenly spaced.
+  # Returns newest-first (reversed) for the graph renderer.
+  defp downsample(points, max_count) when length(points) <= max_count do
+    Enum.reverse(points)
+  end
+
+  defp downsample(points, max_count) do
+    total = length(points)
+    step = total / max_count
+
+    0..(max_count - 1)
+    |> Enum.map(fn i -> Enum.at(points, round(i * step)) end)
+    |> Enum.reverse()
+  end
+
+  defp fill_stream_data_at(socket, time) do
+    span = socket.assigns.timeline_span
+    from = DateTime.add(time, -span, :second)
+    backends = Application.get_env(:timeless_ui, :stream_backends, [])
+
+    stream_elements =
+      socket.assigns.canvas.elements
+      |> Enum.filter(fn {_id, el} -> el.type in [:log_stream, :trace_stream] end)
+
+    stream_data =
+      Enum.reduce(stream_elements, socket.assigns.stream_data, fn {id, element}, acc ->
+        entries = query_stream_historical(element, from, time, backends)
+        Map.put(acc, id, entries)
+      end)
+
+    assign(socket, stream_data: stream_data)
+  end
+
+  defp query_stream_historical(%{type: :log_stream} = element, from, to, backends) do
+    case Keyword.get(backends, :log) do
+      nil ->
+        []
+
+      backend ->
+        filters =
+          build_log_opts(element.meta)
+          |> Keyword.put(:since, from)
+          |> Keyword.put(:until, to)
+          |> Keyword.put(:limit, @max_stream_entries)
+          |> Keyword.put(:order, :desc)
+
+        case backend.query(filters) do
+          {:ok, %{entries: entries}} ->
+            Enum.map(entries, fn e ->
+              %{
+                timestamp: e.timestamp,
+                level: e.level,
+                message: e.message,
+                metadata: e.metadata
+              }
+            end)
+
+          _ ->
+            []
+        end
+    end
+  end
+
+  defp query_stream_historical(%{type: :trace_stream} = element, from, to, backends) do
+    case Keyword.get(backends, :trace) do
+      nil ->
+        []
+
+      backend ->
+        filters =
+          build_trace_opts(element.meta)
+          |> Keyword.put(:since, from)
+          |> Keyword.put(:until, to)
+          |> Keyword.put(:limit, @max_stream_entries)
+          |> Keyword.put(:order, :desc)
+
+        case backend.query(filters) do
+          {:ok, %{entries: spans}} ->
+            Enum.map(spans, fn s ->
+              %{
+                trace_id: s.trace_id,
+                span_id: s.span_id,
+                name: s.name,
+                kind: s.kind,
+                duration_ns: s.duration_ns,
+                status: s.status,
+                status_message: s.status_message,
+                service: get_span_service(s)
+              }
+            end)
+
+          _ ->
+            []
+        end
+    end
+  end
+
+  defp query_stream_historical(_element, _from, _to, _backends), do: []
+
+  defp get_span_service(span) do
+    cond do
+      is_map(span.attributes) && Map.has_key?(span.attributes, "service.name") ->
+        span.attributes["service.name"]
+
+      is_map(span.resource) && Map.has_key?(span.resource, "service.name") ->
+        span.resource["service.name"]
+
+      true ->
+        nil
+    end
+  end
+
+  defp refresh_data_range(socket) do
+    case StatusManager.time_range() do
+      :empty -> assign(socket, timeline_data_range: nil)
+      range -> assign(socket, timeline_data_range: range)
+    end
   end
 
   defp stream_entries_for(%{type: type} = element, stream_data)

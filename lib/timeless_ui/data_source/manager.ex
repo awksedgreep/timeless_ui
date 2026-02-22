@@ -63,6 +63,14 @@ defmodule TimelessUI.DataSource.Manager do
   end
 
   @doc """
+  Return all metric points for an element in a time range.
+  Returns `{:ok, [{timestamp_ms, value}, ...]}` or `:no_data`.
+  """
+  def metric_range(element_id, metric_name, from, to, server \\ __MODULE__) do
+    GenServer.call(server, {:metric_range, element_id, metric_name, from, to}, 30_000)
+  end
+
+  @doc """
   Return the available time range from the data source, or `:empty`.
   """
   def time_range(server \\ __MODULE__) do
@@ -138,6 +146,16 @@ defmodule TimelessUI.DataSource.Manager do
       case Map.get(state.elements, element_id) do
         nil -> :no_data
         element -> state.module.metric_at(state.ds_state, element, metric_name, time)
+      end
+
+    {:reply, result, state}
+  end
+
+  def handle_call({:metric_range, element_id, metric_name, from, to}, _from, state) do
+    result =
+      case Map.get(state.elements, element_id) do
+        nil -> {:ok, []}
+        element -> state.module.metric_range(state.ds_state, element, metric_name, from, to)
       end
 
     {:reply, result, state}

@@ -432,12 +432,18 @@ const CanvasHook = {
     } else if (e.key === "z" && ctrl) {
       e.preventDefault();
       this.pushEvent("canvas:undo", {});
+    } else if (e.key === "c" && ctrl) {
+      e.preventDefault();
+      this.pushEvent("canvas:copy", {});
+    } else if (e.key === "x" && ctrl) {
+      e.preventDefault();
+      this.pushEvent("canvas:cut", {});
+    } else if (e.key === "v" && ctrl) {
+      e.preventDefault();
+      this.pushEvent("canvas:paste", {});
     } else if (e.key === "s" && ctrl) {
       e.preventDefault();
       this.pushEvent("canvas:save", {});
-    } else if (e.key === " ") {
-      e.preventDefault();
-      this.pushEvent("timeline:play_pause", {});
     } else if (e.key === "l" || e.key === "L") {
       e.preventDefault();
       this.pushEvent("timeline:go_live", {});

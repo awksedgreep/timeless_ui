@@ -183,6 +183,71 @@ defmodule TimelessUI.CanvasTest do
     end
   end
 
+  describe "duplicate_elements/3" do
+    test "duplicates a single element with new ID and offset" do
+      canvas = Canvas.new(snap_to_grid: false)
+
+      {canvas, el} =
+        Canvas.add_element(canvas, %{
+          type: :server,
+          x: 100.0,
+          y: 200.0,
+          label: "Web",
+          color: "#ff0000",
+          meta: %{"host" => "srv1"}
+        })
+
+      {canvas, new_ids} = Canvas.duplicate_elements(canvas, [el], 20)
+
+      assert length(new_ids) == 1
+      [new_id] = new_ids
+      assert new_id != el.id
+      new_el = canvas.elements[new_id]
+      assert new_el.x == 120.0
+      assert new_el.y == 220.0
+      assert new_el.type == :server
+      assert new_el.label == "Web"
+      assert new_el.color == "#ff0000"
+      assert new_el.meta == %{"host" => "srv1"}
+    end
+
+    test "duplicates multiple elements with unique IDs" do
+      canvas = Canvas.new(snap_to_grid: false)
+      {canvas, el1} = Canvas.add_element(canvas, %{x: 100.0, y: 100.0, label: "A"})
+      {canvas, el2} = Canvas.add_element(canvas, %{x: 300.0, y: 300.0, label: "B"})
+
+      {canvas, new_ids} = Canvas.duplicate_elements(canvas, [el1, el2], 20)
+
+      assert length(new_ids) == 2
+      assert length(Enum.uniq(new_ids)) == 2
+      assert Enum.all?(new_ids, &(&1 != el1.id and &1 != el2.id))
+      assert map_size(canvas.elements) == 4
+
+      [id1, id2] = new_ids
+      assert canvas.elements[id1].x == 120.0
+      assert canvas.elements[id2].x == 320.0
+    end
+
+    test "returns unchanged canvas for empty list" do
+      canvas = Canvas.new()
+      {result, new_ids} = Canvas.duplicate_elements(canvas, [], 20)
+
+      assert result == canvas
+      assert new_ids == []
+    end
+
+    test "resets status to :unknown on copies" do
+      canvas = Canvas.new(snap_to_grid: false)
+      {canvas, el} = Canvas.add_element(canvas, %{x: 0.0, y: 0.0})
+      canvas = Canvas.set_element_status(canvas, el.id, :error)
+      assert canvas.elements[el.id].status == :error
+
+      {canvas, [new_id]} = Canvas.duplicate_elements(canvas, [canvas.elements[el.id]], 20)
+
+      assert canvas.elements[new_id].status == :unknown
+    end
+  end
+
   describe "pan/3" do
     test "pans the viewbox" do
       canvas = Canvas.new()

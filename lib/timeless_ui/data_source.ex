@@ -40,6 +40,14 @@ defmodule TimelessUI.DataSource do
               time :: DateTime.t()
             ) :: {:ok, float()} | :no_data
 
+  @callback metric_range(
+              state :: term(),
+              element :: Element.t(),
+              metric :: String.t(),
+              from :: DateTime.t(),
+              to :: DateTime.t()
+            ) :: {:ok, [{integer(), float()}]}
+
   @callback status_at(state :: term(), element :: Element.t(), time :: DateTime.t()) ::
               status()
 

@@ -813,92 +813,94 @@ defmodule TimelessUIWeb.CanvasComponents do
 
   attr :timeline_mode, :atom, required: true
   attr :timeline_time, :any, default: nil
-  attr :timeline_playing, :boolean, default: false
-  attr :timeline_speed, :float, default: 1.0
-  attr :timeline_range, :any, default: nil
+  attr :timeline_span, :integer, default: 300
+  attr :timeline_data_range, :any, default: nil
+
+  @span_options [
+    {300, "5m"},
+    {900, "15m"},
+    {3600, "1h"},
+    {21600, "6h"},
+    {43200, "12h"},
+    {86400, "24h"}
+  ]
 
   def timeline_bar(assigns) do
+    now_ms = System.system_time(:millisecond)
+
+    {data_start_ms, data_end_ms} =
+      case assigns.timeline_data_range do
+        {s, e} -> {DateTime.to_unix(s, :millisecond), DateTime.to_unix(e, :millisecond)}
+        _ -> {now_ms - 86_400_000, now_ms}
+      end
+
+    # Slider positions the window END within [data_start + span .. data_end]
+    span_ms = assigns.timeline_span * 1000
+    slider_min = data_start_ms + span_ms
+    slider_max = max(data_end_ms, slider_min + 60_000)
+
+    # Current slider value: window end position
+    {window_end_ms, is_live} =
+      case assigns.timeline_time do
+        nil -> {now_ms, true}
+        %DateTime{} = t -> {DateTime.to_unix(t, :millisecond), false}
+      end
+
+    window_start_ms = window_end_ms - span_ms
+
     assigns =
       assign(assigns,
-        range_start_ms: range_start_ms(assigns.timeline_range),
-        range_end_ms: range_end_ms(assigns.timeline_range),
-        current_ms: time_to_ms(assigns.timeline_time),
-        formatted_time: format_timeline_time(assigns.timeline_time)
+        span_options: @span_options,
+        slider_min: slider_min,
+        slider_max: slider_max,
+        slider_value: min(window_end_ms, slider_max),
+        is_live: is_live,
+        window_start: format_ts(window_start_ms),
+        window_end: format_ts(window_end_ms)
       )
 
     ~H"""
-    <div class="timeline-bar">
-      <div :if={@timeline_mode == :live} class="timeline-bar__live-section">
-        <button
-          phx-click="timeline:enter"
-          class="timeline-bar__btn"
-          disabled={@timeline_range == nil and @range_start_ms == 0}
+    <form class="timeline-bar" phx-change="timeline:change" phx-submit="timeline:change" phx-throttle="500">
+      <select
+        name="span"
+        class="timeline-bar__speed"
+      >
+        <option
+          :for={{secs, label} <- @span_options}
+          value={secs}
+          selected={@timeline_span == secs}
         >
-          Time Travel
-        </button>
-        <span class="timeline-bar__status timeline-bar__status--live">LIVE</span>
-      </div>
+          {label}
+        </option>
+      </select>
 
-      <div :if={@timeline_mode == :historical} class="timeline-bar__historical-section">
-        <button
-          phx-click="timeline:go_live"
-          class="timeline-bar__btn timeline-bar__btn--live"
-        >
-          LIVE
-        </button>
+      <span class="timeline-bar__time">{@window_start}</span>
 
-        <span class="timeline-bar__sep"></span>
+      <input
+        type="range"
+        min={@slider_min}
+        max={@slider_max}
+        value={@slider_value}
+        name="time"
+        class="timeline-bar__slider"
+      />
 
-        <button
-          phx-click="timeline:play_pause"
-          class="timeline-bar__btn"
-        >
-          {if @timeline_playing, do: "Pause", else: "Play"}
-        </button>
+      <span class="timeline-bar__time">{@window_end}</span>
 
-        <span class="timeline-bar__sep"></span>
-
-        <select
-          phx-change="timeline:set_speed"
-          name="speed"
-          class="timeline-bar__speed"
-        >
-          <option value="0.5" selected={@timeline_speed == 0.5}>0.5x</option>
-          <option value="1.0" selected={@timeline_speed == 1.0}>1x</option>
-          <option value="2.0" selected={@timeline_speed == 2.0}>2x</option>
-          <option value="5.0" selected={@timeline_speed == 5.0}>5x</option>
-          <option value="10.0" selected={@timeline_speed == 10.0}>10x</option>
-        </select>
-
-        <input
-          type="range"
-          min={@range_start_ms}
-          max={@range_end_ms}
-          value={@current_ms}
-          phx-change="timeline:scrub"
-          name="time"
-          class="timeline-bar__slider"
-        />
-
-        <span class="timeline-bar__time">{@formatted_time}</span>
-      </div>
-    </div>
+      <button
+        type="button"
+        phx-click="timeline:go_live"
+        class={"timeline-bar__btn#{if @is_live, do: " timeline-bar__btn--live-active", else: ""}"}
+      >
+        LIVE
+      </button>
+    </form>
     """
   end
 
-  defp range_start_ms(nil), do: 0
-  defp range_start_ms({start, _end}), do: DateTime.to_unix(start, :millisecond)
-
-  defp range_end_ms(nil), do: 0
-  defp range_end_ms({_start, end_t}), do: DateTime.to_unix(end_t, :millisecond)
-
-  defp time_to_ms(nil), do: 0
-  defp time_to_ms(%DateTime{} = t), do: DateTime.to_unix(t, :millisecond)
-
-  defp format_timeline_time(nil), do: "--:--:--"
-
-  defp format_timeline_time(%DateTime{} = t) do
-    t
+  defp format_ts(ms) do
+    ms
+    |> DateTime.from_unix!(:millisecond)
     |> Calendar.strftime("%H:%M:%S")
   end
 end

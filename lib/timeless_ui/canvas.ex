@@ -111,6 +111,31 @@ defmodule TimelessUI.Canvas do
   end
 
   @doc """
+  Duplicate elements into the canvas with new IDs, offset positions, and status reset to :unknown.
+  `templates` is a list of Element structs to clone. Each gets a fresh ID via `add_element/2`.
+  Returns `{updated_canvas, new_ids}`.
+  """
+  def duplicate_elements(%__MODULE__{} = canvas, templates, offset) when is_list(templates) do
+    Enum.reduce(templates, {canvas, []}, fn template, {acc_canvas, acc_ids} ->
+      attrs = %{
+        type: template.type,
+        x: template.x + offset,
+        y: template.y + offset,
+        width: template.width,
+        height: template.height,
+        label: template.label,
+        color: template.color,
+        meta: template.meta,
+        z_index: template.z_index,
+        status: :unknown
+      }
+
+      {new_canvas, new_el} = add_element(acc_canvas, attrs)
+      {new_canvas, acc_ids ++ [new_el.id]}
+    end)
+  end
+
+  @doc """
   Move multiple elements by (dx, dy). Elements not found are skipped.
   """
   def move_elements(%__MODULE__{} = canvas, ids, dx, dy) do

@@ -34,6 +34,25 @@ defmodule TimelessUI.DataSource.Random do
   def handle_message(_state, _message), do: :ignore
 
   @impl true
+  def metric_range(_state, element, metric, %DateTime{} = from, %DateTime{} = to) do
+    from_ms = DateTime.to_unix(from, :millisecond)
+    to_ms = DateTime.to_unix(to, :millisecond)
+
+    points =
+      Stream.iterate(from_ms, &(&1 + 2000))
+      |> Enum.take_while(&(&1 <= to_ms))
+      |> Enum.map(fn ms ->
+        bucket = div(ms, 2000)
+        seed = :erlang.phash2({element.id, metric})
+        phase = seed / 65535.0 * 2 * :math.pi()
+        value = 50.0 + 30.0 * :math.sin(bucket / 15.0 + phase)
+        {ms, Float.round(value, 1)}
+      end)
+
+    {:ok, points}
+  end
+
+  @impl true
   def metric_at(_state, element, metric, %DateTime{} = time) do
     # Deterministic sine wave seeded by element ID + metric name.
     # 2-second buckets so the sparkline looks smooth.
