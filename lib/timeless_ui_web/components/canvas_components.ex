@@ -11,9 +11,27 @@ defmodule TimelessUIWeb.CanvasComponents do
   attr :graph_points, :string, default: ""
   attr :graph_value, :string, default: nil
   attr :stream_entries, :list, default: []
+  attr :expanded_graph_id, :string, default: nil
+  attr :expanded_graph_data, :list, default: []
 
   def canvas_element(assigns) do
-    assigns = assign(assigns, status_color: status_color(assigns.element.status))
+    is_expanded = assigns.element.type == :graph and assigns.expanded_graph_id == assigns.element.id
+
+    # When expanded, use larger dimensions
+    {render_w, render_h} =
+      if is_expanded do
+        {assigns.element.width * 4, assigns.element.height * 5}
+      else
+        {assigns.element.width, assigns.element.height}
+      end
+
+    assigns =
+      assign(assigns,
+        status_color: status_color(assigns.element.status),
+        is_expanded: is_expanded,
+        render_w: render_w,
+        render_h: render_h
+      )
 
     ~H"""
     <g
@@ -25,12 +43,16 @@ defmodule TimelessUIWeb.CanvasComponents do
         graph_points={@graph_points}
         graph_value={@graph_value}
         stream_entries={@stream_entries}
+        is_expanded={@is_expanded}
+        expanded_graph_data={@expanded_graph_data}
+        render_w={@render_w}
+        render_h={@render_h}
       />
       <.element_icon element={@element} />
       <text
         :if={@element.type not in [:graph, :log_stream, :trace_stream, :text]}
-        x={@element.x + @element.width / 2}
-        y={@element.y + @element.height - 16}
+        x={@element.x + @render_w / 2}
+        y={@element.y + @render_h - 16}
         text-anchor="middle"
         dominant-baseline="central"
         class="canvas-element__label"
@@ -39,7 +61,7 @@ defmodule TimelessUIWeb.CanvasComponents do
       </text>
       <circle
         :if={@element.type != :text}
-        cx={@element.x + @element.width - 8}
+        cx={@element.x + @render_w - 8}
         cy={@element.y + 8}
         r="5"
         fill={@status_color}
@@ -47,8 +69,8 @@ defmodule TimelessUIWeb.CanvasComponents do
       />
       <rect
         :if={@selected}
-        x={@element.x + @element.width - 10}
-        y={@element.y + @element.height - 10}
+        x={@element.x + @render_w - 10}
+        y={@element.y + @render_h - 10}
         width="10"
         height="10"
         class="canvas-element__handle"
@@ -152,17 +174,28 @@ defmodule TimelessUIWeb.CanvasComponents do
     >
       {@log_title}
     </text>
-    <text
-      :for={{entry, i} <- Enum.with_index(@rows)}
-      x={@element.x + 4}
-      y={@element.y + 24 + i * 14}
-      fill={log_level_color(entry.level)}
-      font-size="9"
-      font-family="monospace"
-      clip-path={"url(#log-clip-#{@element.id})"}
-    >
-      {format_log_entry(entry)}
-    </text>
+    <g :for={{entry, i} <- Enum.with_index(@rows)}>
+      <rect
+        x={@element.x}
+        y={@element.y + 15 + i * 14}
+        width={@element.width}
+        height="14"
+        fill="transparent"
+        class="canvas-stream-row"
+        data-stream-entry={Jason.encode!(%{element_id: @element.id, index: i, type: "log"})}
+      />
+      <text
+        x={@element.x + 4}
+        y={@element.y + 24 + i * 14}
+        fill={log_level_color(entry.level)}
+        font-size="9"
+        font-family="monospace"
+        clip-path={"url(#log-clip-#{@element.id})"}
+        pointer-events="none"
+      >
+        {format_log_entry(entry)}
+      </text>
+    </g>
     <text
       :if={@rows == []}
       x={@element.x + @element.width / 2}
@@ -220,20 +253,31 @@ defmodule TimelessUIWeb.CanvasComponents do
     >
       {@trace_title}
     </text>
-    <text
-      :for={{span, i} <- Enum.with_index(@rows)}
-      x={@element.x + 4}
-      y={@element.y + 24 + i * 14}
-      font-size="9"
-      font-family="monospace"
-      clip-path={"url(#trace-clip-#{@element.id})"}
-    >
-      <tspan fill="#e2e8f0">{span.name}</tspan>
-      <tspan dx="6" fill={duration_color(span.duration_ns)}>
-        {format_duration(span.duration_ns)}
-      </tspan>
-      <tspan dx="6" fill={span_status_color(span.status)}>{span_status_label(span.status)}</tspan>
-    </text>
+    <g :for={{span, i} <- Enum.with_index(@rows)}>
+      <rect
+        x={@element.x}
+        y={@element.y + 15 + i * 14}
+        width={@element.width}
+        height="14"
+        fill="transparent"
+        class="canvas-stream-row"
+        data-stream-entry={Jason.encode!(%{element_id: @element.id, index: i, type: "trace"})}
+      />
+      <text
+        x={@element.x + 4}
+        y={@element.y + 24 + i * 14}
+        font-size="9"
+        font-family="monospace"
+        clip-path={"url(#trace-clip-#{@element.id})"}
+        pointer-events="none"
+      >
+        <tspan fill="#e2e8f0">{span.name}</tspan>
+        <tspan dx="6" fill={duration_color(span.duration_ns)}>
+          {format_duration(span.duration_ns)}
+        </tspan>
+        <tspan dx="6" fill={span_status_color(span.status)}>{span_status_label(span.status)}</tspan>
+      </text>
+    </g>
     <text
       :if={@rows == []}
       x={@element.x + @element.width / 2}
@@ -244,6 +288,214 @@ defmodule TimelessUIWeb.CanvasComponents do
     >
       Waiting for traces...
     </text>
+    """
+  end
+
+  defp element_body(%{element: %{type: :graph}, is_expanded: true} = assigns) do
+    metric_name = Map.get(assigns.element.meta, "metric_name", "metric")
+
+    graph_title =
+      case assigns.element.label do
+        nil -> metric_name
+        "" -> metric_name
+        label -> "#{label} | #{metric_name}"
+      end
+
+    # Layout constants
+    pad_left = 50
+    pad_right = 10
+    pad_top = 30
+    pad_bottom = 20
+    w = assigns.render_w
+    h = assigns.render_h
+    plot_x = assigns.element.x + pad_left
+    plot_y = assigns.element.y + pad_top
+    plot_w = w - pad_left - pad_right
+    plot_h = h - pad_top - pad_bottom
+
+    # Compute points, ticks, and polyline for expanded view
+    points = Enum.reverse(assigns.expanded_graph_data)
+
+    {min_val, max_val, y_ticks, polyline_points, area_points, tooltip_data, current_val} =
+      if points != [] do
+        {min_p, max_p} = Enum.min_max_by(points, &elem(&1, 1))
+        raw_min = elem(min_p, 1)
+        raw_max = elem(max_p, 1)
+        val_range = max(raw_max - raw_min, 0.001)
+        # Add 5% padding to value range
+        padded_min = raw_min - val_range * 0.05
+        padded_max = raw_max + val_range * 0.05
+        padded_range = padded_max - padded_min
+
+        ticks = y_axis_ticks(raw_min, raw_max)
+        count = length(points)
+
+        poly =
+          points
+          |> Enum.with_index()
+          |> Enum.map(fn {{_ts, val}, i} ->
+            x = plot_x + i / max(count - 1, 1) * plot_w
+            y = plot_y + (1 - (val - padded_min) / padded_range) * plot_h
+            {Float.round(x, 1), Float.round(y, 1)}
+          end)
+
+        polyline_str = Enum.map_join(poly, " ", fn {x, y} -> "#{x},#{y}" end)
+
+        # Area: polyline points + bottom-right + bottom-left
+        {first_x, _} = List.first(poly)
+        {last_x, _} = List.last(poly)
+        bottom_y = plot_y + plot_h
+
+        area_str =
+          polyline_str <>
+            " #{last_x},#{bottom_y} #{first_x},#{bottom_y}"
+
+        # Tooltip data: [{t_ms, value}, ...]
+        tooltip =
+          Enum.map(points, fn {ts, val} ->
+            t_ms =
+              case ts do
+                %DateTime{} -> DateTime.to_unix(ts, :millisecond)
+                ms when is_integer(ms) -> ms
+                _ -> 0
+              end
+
+            %{"t" => t_ms, "v" => val}
+          end)
+
+        {_ts, cur} = List.last(points)
+        {padded_min, padded_max, ticks, polyline_str, area_str, tooltip, format_value(cur)}
+      else
+        {0, 1, [0.0, 0.25, 0.5, 0.75, 1.0], "", "", [], nil}
+      end
+
+    # X-axis time ticks
+    x_ticks =
+      if points != [] do
+        {first_ts, _} = List.first(points)
+        {last_ts, _} = List.last(points)
+        x_axis_ticks(first_ts, last_ts)
+      else
+        []
+      end
+
+    val_range = max(max_val - min_val, 0.001)
+
+    assigns =
+      assign(assigns,
+        graph_title: graph_title,
+        metric_name: metric_name,
+        plot_x: plot_x,
+        plot_y: plot_y,
+        plot_w: plot_w,
+        plot_h: plot_h,
+        min_val: min_val,
+        max_val: max_val,
+        val_range: val_range,
+        y_ticks: y_ticks,
+        x_ticks: x_ticks,
+        polyline_points: polyline_points,
+        area_points: area_points,
+        tooltip_data: Jason.encode!(tooltip_data),
+        current_val: current_val
+      )
+
+    ~H"""
+    <g data-expanded="true" data-points={@tooltip_data}>
+      <rect
+        x={@element.x}
+        y={@element.y}
+        width={@render_w}
+        height={@render_h}
+        rx="6"
+        ry="6"
+        fill="#0c1222"
+        class="canvas-element__body"
+      />
+      <clipPath id={"graph-clip-#{@element.id}"}>
+        <rect x={@element.x} y={@element.y} width={@render_w} height={@render_h} rx="6" />
+      </clipPath>
+
+      <%!-- Gridlines --%>
+      <line
+        :for={tick <- @y_ticks}
+        x1={@plot_x}
+        y1={@plot_y + (1 - (tick - @min_val) / @val_range) * @plot_h}
+        x2={@plot_x + @plot_w}
+        y2={@plot_y + (1 - (tick - @min_val) / @val_range) * @plot_h}
+        stroke="#1e293b"
+        stroke-width="0.5"
+        stroke-dasharray="4 3"
+      />
+
+      <%!-- Y-axis labels --%>
+      <text
+        :for={tick <- @y_ticks}
+        x={@plot_x - 4}
+        y={@plot_y + (1 - (tick - @min_val) / @val_range) * @plot_h + 3}
+        text-anchor="end"
+        fill="#64748b"
+        font-size="8"
+        font-family="monospace"
+      >
+        {format_value(tick)}
+      </text>
+
+      <%!-- X-axis labels --%>
+      <text
+        :for={{ts, frac} <- @x_ticks}
+        x={@plot_x + frac * @plot_w}
+        y={@plot_y + @plot_h + 14}
+        text-anchor="middle"
+        fill="#64748b"
+        font-size="8"
+        font-family="monospace"
+      >
+        {format_time(ts)}
+      </text>
+
+      <%!-- Area fill --%>
+      <polygon
+        :if={@area_points != ""}
+        points={@area_points}
+        fill={@element.color}
+        opacity="0.12"
+        clip-path={"url(#graph-clip-#{@element.id})"}
+      />
+
+      <%!-- Graph line --%>
+      <polyline
+        :if={@polyline_points != ""}
+        points={@polyline_points}
+        fill="none"
+        stroke={@element.color}
+        stroke-width="1.5"
+        stroke-linejoin="round"
+        stroke-linecap="round"
+        class="canvas-graph__line"
+        clip-path={"url(#graph-clip-#{@element.id})"}
+      />
+
+      <%!-- Title --%>
+      <text
+        x={@element.x + 8}
+        y={@element.y + 14}
+        fill="#94a3b8"
+        font-size="10"
+        clip-path={"url(#graph-clip-#{@element.id})"}
+      >
+        {@graph_title}
+      </text>
+
+      <%!-- Legend --%>
+      <g transform={"translate(#{@element.x + @render_w - 8}, #{@element.y + 10})"}>
+        <rect x="-60" y="-6" width="60" height="12" rx="3" fill="#1e293b" opacity="0.8" />
+        <rect x="-56" y="-2" width="8" height="4" rx="1" fill={@element.color} />
+        <text x="-44" y="3" fill="#e2e8f0" font-size="7" font-family="monospace">
+          {@current_val || "---"}
+        </text>
+      </g>
+    </g>
     """
   end
 
@@ -804,6 +1056,92 @@ defmodule TimelessUIWeb.CanvasComponents do
   defp span_status_label(:ok), do: "OK"
   defp span_status_label(:error), do: "ERR"
   defp span_status_label(_), do: "---"
+
+  # --- Graph detail helpers ---
+
+  defp format_value(val) when is_float(val) or is_integer(val) do
+    abs_val = abs(val)
+
+    cond do
+      abs_val >= 1_000_000_000 -> "#{Float.round(val / 1_000_000_000, 1)}G"
+      abs_val >= 1_000_000 -> "#{Float.round(val / 1_000_000, 1)}M"
+      abs_val >= 10_000 -> "#{Float.round(val / 1_000, 1)}K"
+      abs_val >= 100 -> "#{round(val)}"
+      abs_val >= 1 -> "#{Float.round(val / 1, 2)}"
+      abs_val == 0 -> "0"
+      true -> "#{Float.round(val / 1, 3)}"
+    end
+  end
+
+  defp format_value(_), do: "---"
+
+  defp format_time(ts) do
+    ms =
+      case ts do
+        %DateTime{} -> DateTime.to_unix(ts, :millisecond)
+        ms when is_integer(ms) -> ms
+        _ -> 0
+      end
+
+    ms
+    |> DateTime.from_unix!(:millisecond)
+    |> Calendar.strftime("%H:%M:%S")
+  end
+
+  defp y_axis_ticks(min_val, max_val) do
+    range = max_val - min_val
+
+    if range == 0 do
+      [min_val]
+    else
+      # Pick a nice step size (1, 2, 5 * 10^n)
+      raw_step = range / 4
+      magnitude = :math.pow(10, floor(:math.log10(raw_step)))
+
+      nice_step =
+        cond do
+          raw_step / magnitude < 1.5 -> magnitude
+          raw_step / magnitude < 3.5 -> 2 * magnitude
+          raw_step / magnitude < 7.5 -> 5 * magnitude
+          true -> 10 * magnitude
+        end
+
+      start = Float.floor(min_val / nice_step) * nice_step
+      stop = Float.ceil(max_val / nice_step) * nice_step
+
+      ticks =
+        Stream.iterate(start, &(&1 + nice_step))
+        |> Enum.take_while(&(&1 <= stop + nice_step * 0.01))
+
+      # Limit to 7 ticks max
+      Enum.take(ticks, 7)
+    end
+  end
+
+  defp x_axis_ticks(first_ts, last_ts) do
+    first_ms =
+      case first_ts do
+        %DateTime{} -> DateTime.to_unix(first_ts, :millisecond)
+        ms when is_integer(ms) -> ms
+        _ -> 0
+      end
+
+    last_ms =
+      case last_ts do
+        %DateTime{} -> DateTime.to_unix(last_ts, :millisecond)
+        ms when is_integer(ms) -> ms
+        _ -> 0
+      end
+
+    span_ms = max(last_ms - first_ms, 1)
+    num_ticks = 6
+
+    for i <- 0..(num_ticks - 1) do
+      frac = i / (num_ticks - 1)
+      ts_ms = round(first_ms + frac * span_ms)
+      {DateTime.from_unix!(ts_ms, :millisecond), frac}
+    end
+  end
 
   defp dash_for_style(:dashed), do: "8 4"
   defp dash_for_style(:dotted), do: "3 3"

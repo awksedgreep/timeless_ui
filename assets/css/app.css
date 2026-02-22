@@ -298,9 +298,96 @@ body:has(.canvas-container) {
   gap: 2px;
 }
 
+.canvas-toolbar__hint {
+  font-size: 12px;
+  color: var(--text-muted, #888);
+  padding: 4px 8px;
+}
+
 .canvas-type-btn {
   padding: 4px 8px !important;
   font-size: 11px !important;
+}
+
+.canvas-toolbar__select {
+  padding: 4px 8px;
+  font-size: 12px;
+  background: var(--toolbar-bg, #1e1e2e);
+  color: var(--text-primary, #e0e0e0);
+  border: 1px solid var(--toolbar-border, #3a3a4a);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.host-combobox {
+  position: relative;
+}
+
+.host-combobox__input {
+  padding: 4px 8px;
+  font-size: 12px;
+  width: 180px;
+  background: var(--toolbar-bg, #1e1e2e);
+  color: var(--text-primary, #e0e0e0);
+  border: 1px solid var(--toolbar-border, #3a3a4a);
+  border-radius: 4px;
+}
+
+.host-combobox__input::placeholder {
+  color: var(--text-primary, #e0e0e0);
+  opacity: 0.8;
+}
+
+.host-combobox__input:focus {
+  outline: none;
+  border-color: var(--accent, #6366f1);
+}
+
+.host-combobox__input:focus::placeholder {
+  opacity: 0.4;
+}
+
+.host-combobox__dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  width: 240px;
+  max-height: 240px;
+  overflow-y: auto;
+  background: var(--toolbar-bg, #1e1e2e);
+  border: 1px solid var(--toolbar-border, #3a3a4a);
+  border-radius: 4px;
+  margin-top: 4px;
+  z-index: 100;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.host-combobox__option {
+  display: block;
+  width: 100%;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-family: var(--font-mono, monospace);
+  text-align: left;
+  background: none;
+  color: var(--text-primary, #e0e0e0);
+  border: none;
+  cursor: pointer;
+}
+
+.host-combobox__option:hover {
+  background: var(--surface-3, #3a3a4a);
+}
+
+.host-combobox__option--active {
+  color: var(--accent, #6366f1);
+}
+
+.host-combobox__empty {
+  display: block;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--text-muted, #888);
 }
 
 /* Toolbar badges */
@@ -337,7 +424,10 @@ body:has(.canvas-container) {
 .canvas-zoom-indicator {
   position: absolute;
   bottom: 56px;
-  right: 12px;
+  left: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   padding: 4px 10px;
   background: var(--toolbar-bg);
   border: 1px solid var(--toolbar-border);
@@ -347,6 +437,23 @@ body:has(.canvas-container) {
   font-size: 12px;
   color: var(--text-muted);
   z-index: 10;
+}
+
+.canvas-zoom-indicator__reset {
+  padding: 1px 6px;
+  font-size: 10px;
+  font-family: inherit;
+  color: var(--accent);
+  background: transparent;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 0.15s;
+}
+
+.canvas-zoom-indicator__reset:hover {
+  opacity: 1;
 }
 
 /* Properties Panel */
@@ -435,6 +542,50 @@ body:has(.canvas-container) {
   margin-bottom: 12px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+}
+
+.properties-panel__series-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.properties-panel__series-btn {
+  display: block;
+  width: 100%;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-family: var(--font-mono, monospace);
+  text-align: left;
+  background: var(--surface-2, #2a2a3a);
+  color: var(--text-primary, #e0e0e0);
+  border: 1px solid var(--border-color, #3a3a4a);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.properties-panel__series-btn:hover {
+  background: var(--surface-3, #3a3a4a);
+  border-color: var(--accent, #6366f1);
+}
+
+.properties-panel__series-btn--stream {
+  font-family: inherit;
+  font-weight: 500;
+  border-left: 3px solid var(--accent, #6366f1);
+}
+
+.canvas-stream-row {
+  cursor: pointer;
+}
+
+.canvas-stream-row:hover {
+  fill: rgba(99, 102, 241, 0.15);
+}
+
+.stream-popover {
+  cursor: pointer;
 }
 
 /* Timeline Bar */

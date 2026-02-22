@@ -61,5 +61,10 @@ defmodule TimelessUI.DataSource do
               buckets :: pos_integer()
             ) :: [non_neg_integer()]
 
-  @optional_callbacks [event_density: 4]
+  @callback list_series_for_host(state :: term(), host :: String.t()) ::
+              [{String.t(), map()}]
+
+  @callback list_hosts(state :: term()) :: [String.t()]
+
+  @optional_callbacks [event_density: 4, list_series_for_host: 2, list_hosts: 1]
 end

@@ -36,7 +36,7 @@ defmodule TimelessUI.DataSource.Manager do
   Register elements for status tracking. Subscribes the data source to each element.
   """
   def register_elements(elements, server \\ __MODULE__) when is_list(elements) do
-    GenServer.cast(server, {:register_elements, elements})
+    GenServer.call(server, {:register_elements, elements})
   end
 
   @doc """
@@ -85,6 +85,22 @@ defmodule TimelessUI.DataSource.Manager do
     GenServer.call(server, {:data_density, from, to, buckets}, 10_000)
   end
 
+  @doc """
+  List all metric series for a given host.
+  Returns `[{metric_name, labels}, ...]` or `[]` if the data source doesn't support it.
+  """
+  def list_series_for_host(host, server \\ __MODULE__) do
+    GenServer.call(server, {:list_series_for_host, host}, 10_000)
+  end
+
+  @doc """
+  List all discovered hosts.
+  Returns `[host_string, ...]` or `[]` if the data source doesn't support it.
+  """
+  def list_hosts(server \\ __MODULE__) do
+    GenServer.call(server, :list_hosts, 10_000)
+  end
+
   # --- Server callbacks ---
 
   @impl true
@@ -115,28 +131,14 @@ defmodule TimelessUI.DataSource.Manager do
   end
 
   @impl true
-  def handle_cast({:register_elements, elements}, state) do
+  def handle_call({:register_elements, elements}, _from, state) do
     {ds_state, element_map} =
       Enum.reduce(elements, {state.ds_state, state.elements}, fn element, {ds, elmap} ->
         {:ok, ds} = state.module.subscribe(ds, element)
         {ds, Map.put(elmap, element.id, element)}
       end)
 
-    {:noreply, %{state | ds_state: ds_state, elements: element_map}}
-  end
-
-  def handle_cast({:unregister_element, element_id}, state) do
-    case Map.pop(state.elements, element_id) do
-      {nil, _elements} ->
-        {:noreply, state}
-
-      {element, elements} ->
-        {:ok, ds_state} = state.module.unsubscribe(state.ds_state, element)
-        last_statuses = Map.delete(state.last_statuses, element_id)
-
-        {:noreply,
-         %{state | ds_state: ds_state, elements: elements, last_statuses: last_statuses}}
-    end
+    {:reply, :ok, %{state | ds_state: ds_state, elements: element_map}}
   end
 
   @impl true
@@ -182,6 +184,43 @@ defmodule TimelessUI.DataSource.Manager do
       end
 
     {:reply, result, state}
+  end
+
+  def handle_call({:list_series_for_host, host}, _from, state) do
+    result =
+      if function_exported?(state.module, :list_series_for_host, 2) do
+        state.module.list_series_for_host(state.ds_state, host)
+      else
+        []
+      end
+
+    {:reply, result, state}
+  end
+
+  def handle_call(:list_hosts, _from, state) do
+    result =
+      if function_exported?(state.module, :list_hosts, 1) do
+        state.module.list_hosts(state.ds_state)
+      else
+        []
+      end
+
+    {:reply, result, state}
+  end
+
+  @impl true
+  def handle_cast({:unregister_element, element_id}, state) do
+    case Map.pop(state.elements, element_id) do
+      {nil, _elements} ->
+        {:noreply, state}
+
+      {element, elements} ->
+        {:ok, ds_state} = state.module.unsubscribe(state.ds_state, element)
+        last_statuses = Map.delete(state.last_statuses, element_id)
+
+        {:noreply,
+         %{state | ds_state: ds_state, elements: elements, last_statuses: last_statuses}}
+    end
   end
 
   @impl true

@@ -67,7 +67,9 @@ defmodule TimelessUIWeb.CanvasLive do
          canvas: canvas,
          selected_ids: MapSet.new(),
          mode: :select,
-         place_type: :rect,
+         place_host: nil,
+         place_host_type: :server,
+         place_kind: :host,
          connect_from: nil,
          canvas_name: record.name,
          canvas_id: canvas_id,
@@ -86,9 +88,17 @@ defmodule TimelessUIWeb.CanvasLive do
          graph_data: %{},
          stream_data: stream_data,
          clipboard: [],
-         paste_offset: 20
+         paste_offset: 20,
+         expanded_graph_id: nil,
+         expanded_graph_data: [],
+         pre_expand_viewbox: nil,
+         available_series: [],
+         discovered_hosts: [],
+         host_filter: "",
+         stream_popover: nil
        )
        |> refresh_data_range()
+       |> refresh_discovered_hosts()
        |> fill_graph_data_at(DateTime.utc_now())
        |> push_density_update()}
     else
@@ -101,6 +111,7 @@ defmodule TimelessUIWeb.CanvasLive do
   end
 
   @max_graph_points 60
+  @max_graph_points_expanded 300
   @max_stream_entries 50
 
   @impl true
@@ -193,14 +204,37 @@ defmodule TimelessUIWeb.CanvasLive do
         <span class="canvas-toolbar__sep"></span>
 
         <div :if={@mode == :place} class="canvas-type-palette">
-          <button
-            :for={type <- Element.element_types()}
-            phx-click="set_place_type"
-            phx-value-type={type}
-            class={"canvas-toolbar__btn canvas-type-btn#{if @place_type == type, do: " canvas-toolbar__btn--active", else: ""}"}
-            style={"border-bottom: 2px solid #{Element.defaults_for(type).color}"}
+          <select
+            phx-change="set_host_type"
+            name="host_type"
+            class="canvas-toolbar__select"
           >
-            {@type_labels[type] || type}
+            <option
+              :for={t <- ~w(server service database load_balancer queue cache router network)a}
+              value={t}
+              selected={t == @place_host_type}
+            >
+              {@type_labels[t]}
+            </option>
+          </select>
+          <.host_combobox
+            :if={@discovered_hosts != []}
+            hosts={@discovered_hosts}
+            selected={@place_host}
+            filter={@host_filter}
+          />
+          <span :if={@discovered_hosts == []} class="canvas-toolbar__hint">
+            No hosts discovered
+          </span>
+          <span class="canvas-toolbar__sep"></span>
+          <button
+            :for={kind <- ~w(rect canvas text)a}
+            phx-click="set_place_kind"
+            phx-value-kind={kind}
+            class={"canvas-toolbar__btn canvas-type-btn#{if @place_kind == kind, do: " canvas-toolbar__btn--active", else: ""}"}
+            style={"border-bottom: 2px solid #{Element.defaults_for(kind).color}"}
+          >
+            {@type_labels[kind]}
           </button>
         </div>
 
@@ -317,19 +351,24 @@ defmodule TimelessUIWeb.CanvasLive do
         />
 
         <.canvas_element
-          :for={element <- sorted_elements(@canvas.elements)}
+          :for={element <- sorted_elements(@canvas.elements, @expanded_graph_id)}
           :key={element.id}
           element={element}
           selected={element.id in @selected_ids}
           graph_points={graph_points_for(element, @graph_data)}
           graph_value={graph_value_for(element, @graph_data)}
           stream_entries={stream_entries_for(element, @stream_data)}
+          expanded_graph_id={@expanded_graph_id}
+          expanded_graph_data={@expanded_graph_data}
         />
+
+        <.stream_popover :if={@stream_popover} popover={@stream_popover} />
       </svg>
 
       <.properties_panel
         selected={sole_selected_object(@selected_ids, @canvas)}
         canvas={@canvas}
+        available_series={@available_series}
       />
 
       <.timeline_bar
@@ -340,7 +379,14 @@ defmodule TimelessUIWeb.CanvasLive do
       />
 
       <div class="canvas-zoom-indicator">
-        {zoom_percentage(@canvas.view_box)}%
+        <span>{zoom_percentage(@canvas.view_box)}%</span>
+        <button
+          :if={zoom_percentage(@canvas.view_box) != 100}
+          phx-click="zoom_reset"
+          class="canvas-zoom-indicator__reset"
+        >
+          100%
+        </button>
       </div>
     </div>
     """
@@ -407,6 +453,36 @@ defmodule TimelessUIWeb.CanvasLive do
           </div>
         </form>
       </div>
+      <div :if={(@selected.meta["host"] || "") != ""} class="properties-panel__section">
+        <h4 class="properties-panel__subtitle">Add Elements</h4>
+        <div class="properties-panel__series-list">
+          <button
+            class="properties-panel__series-btn properties-panel__series-btn--stream"
+            phx-click="place_child_element"
+            phx-value-type="log_stream"
+            phx-value-element_id={@selected.id}
+          >
+            Logs
+          </button>
+          <button
+            class="properties-panel__series-btn properties-panel__series-btn--stream"
+            phx-click="place_child_element"
+            phx-value-type="trace_stream"
+            phx-value-element_id={@selected.id}
+          >
+            Traces
+          </button>
+          <button
+            :for={{metric_name, _labels} <- @available_series}
+            class="properties-panel__series-btn"
+            phx-click="place_series_graph"
+            phx-value-metric_name={metric_name}
+            phx-value-element_id={@selected.id}
+          >
+            {metric_name}
+          </button>
+        </div>
+      </div>
     </div>
     """
   end
@@ -442,6 +518,253 @@ defmodule TimelessUIWeb.CanvasLive do
           <input type="text" value={@selected.target_id} disabled />
         </div>
       </form>
+    </div>
+    """
+  end
+
+  defp stream_popover(%{popover: %{type: "log"}} = assigns) do
+    entry = assigns.popover.entry
+    x = assigns.popover.x
+    y = assigns.popover.y
+
+    ts = format_popover_timestamp(entry[:timestamp])
+    level = entry[:level] |> to_string() |> String.upcase()
+    msg = entry[:message] || ""
+
+    # Word-wrap message into lines of ~50 chars
+    msg_lines = wrap_text(msg, 50)
+
+    meta_rows =
+      case entry[:metadata] do
+        m when is_map(m) and map_size(m) > 0 ->
+          Enum.map(m, fn {k, v} ->
+            val = if is_binary(v), do: v, else: inspect(v)
+            {to_string(k), val}
+          end)
+
+        _ ->
+          []
+      end
+
+    # Compute dimensions
+    header_h = 24
+    msg_h = length(msg_lines) * 11 + 8
+    meta_h = if meta_rows != [], do: 14 + length(meta_rows) * 11, else: 0
+    box_h = header_h + msg_h + meta_h + 8
+    box_w = 360
+
+    assigns =
+      assign(assigns,
+        x: x,
+        y: y,
+        box_w: box_w,
+        box_h: box_h,
+        header_h: header_h,
+        msg_lines: msg_lines,
+        msg_h: msg_h,
+        meta_rows: meta_rows,
+        ts: ts,
+        level: level,
+        level_atom: entry[:level]
+      )
+
+    ~H"""
+    <g class="stream-popover" phx-click="stream:close_popover">
+      <rect x={@x} y={@y} width={@box_w} height={@box_h} rx="4" fill="#0f172a" stroke="#334155" stroke-width="0.5" />
+      <%!-- Header bar --%>
+      <rect x={@x} y={@y} width={@box_w} height={@header_h} rx="4" fill="#1e293b" />
+      <rect x={@x} y={@y + @header_h - 4} width={@box_w} height="4" fill="#1e293b" />
+      <%!-- Level badge --%>
+      <rect x={@x + 8} y={@y + 6} width="32" height="12" rx="2" fill={log_level_color(@level_atom)} opacity="0.2" />
+      <text x={@x + 24} y={@y + 15} text-anchor="middle" fill={log_level_color(@level_atom)} font-size="7" font-weight="bold" font-family="monospace">{@level}</text>
+      <%!-- Timestamp --%>
+      <text x={@x + 48} y={@y + 15} fill="#94a3b8" font-size="7" font-family="monospace">{@ts}</text>
+      <%!-- Close X --%>
+      <text x={@x + @box_w - 14} y={@y + 15} fill="#64748b" font-size="9" cursor="pointer">x</text>
+      <%!-- Message body --%>
+      <text
+        :for={{line, i} <- Enum.with_index(@msg_lines)}
+        x={@x + 10}
+        y={@y + @header_h + 12 + i * 11}
+        fill="#e2e8f0"
+        font-size="8"
+        font-family="monospace"
+      >{line}</text>
+      <%!-- Metadata section --%>
+      <line :if={@meta_rows != []} x1={@x + 8} y1={@y + @header_h + @msg_h - 2} x2={@x + @box_w - 8} y2={@y + @header_h + @msg_h - 2} stroke="#334155" stroke-width="0.5" />
+      <text :if={@meta_rows != []} x={@x + 10} y={@y + @header_h + @msg_h + 9} fill="#64748b" font-size="6" font-family="monospace">METADATA</text>
+      <g :for={{row, i} <- Enum.with_index(@meta_rows)}>
+        <text x={@x + 10} y={@y + @header_h + @msg_h + 20 + i * 11} fill="#94a3b8" font-size="7" font-family="monospace">{elem(row, 0)}</text>
+        <text x={@x + 90} y={@y + @header_h + @msg_h + 20 + i * 11} fill="#e2e8f0" font-size="7" font-family="monospace">{elem(row, 1)}</text>
+      </g>
+    </g>
+    """
+  end
+
+  defp stream_popover(%{popover: %{type: "trace"}} = assigns) do
+    span = assigns.popover.entry
+    x = assigns.popover.x
+    y = assigns.popover.y
+
+    ts = format_popover_timestamp(span[:timestamp])
+    duration = format_popover_duration(span[:duration_ns])
+    status = span[:status]
+    status_ok = status == :ok || status == "ok"
+
+    # Build attribute rows from available fields
+    attrs =
+      [
+        if(span[:trace_id], do: {"Trace ID", span[:trace_id]}),
+        if(span[:span_id], do: {"Span ID", span[:span_id]}),
+        if(span[:service], do: {"Service", span[:service]}),
+        if(span[:kind], do: {"Kind", to_string(span[:kind])}),
+        if(ts, do: {"Start", ts})
+      ]
+      |> Enum.reject(&is_nil/1)
+
+    # Compute dimensions
+    header_h = 36
+    dur_bar_h = 18
+    attrs_h = if attrs != [], do: 14 + length(attrs) * 12, else: 0
+    status_msg_h = if span[:status_message] && span[:status_message] != "", do: 14, else: 0
+    box_h = header_h + dur_bar_h + attrs_h + status_msg_h + 12
+    box_w = 340
+
+    # Duration bar width (relative, capped at full width for display)
+    dur_bar_w = box_w - 20
+
+    assigns =
+      assign(assigns,
+        x: x,
+        y: y,
+        box_w: box_w,
+        box_h: box_h,
+        header_h: header_h,
+        dur_bar_h: dur_bar_h,
+        dur_bar_w: dur_bar_w,
+        attrs: attrs,
+        attrs_h: attrs_h,
+        span_name: span[:name] || "unknown",
+        duration: duration,
+        status: status,
+        status_ok: status_ok,
+        status_message: span[:status_message],
+        status_msg_h: status_msg_h,
+        service: span[:service]
+      )
+
+    ~H"""
+    <g class="stream-popover" phx-click="stream:close_popover">
+      <rect x={@x} y={@y} width={@box_w} height={@box_h} rx="4" fill="#0f172a" stroke="#334155" stroke-width="0.5" />
+      <%!-- Header --%>
+      <rect x={@x} y={@y} width={@box_w} height={@header_h} rx="4" fill="#1e293b" />
+      <rect x={@x} y={@y + @header_h - 4} width={@box_w} height="4" fill="#1e293b" />
+      <%!-- Service badge --%>
+      <rect :if={@service} x={@x + 8} y={@y + 5} width={String.length(@service) * 5 + 10} height="12" rx="2" fill="#6366f1" opacity="0.25" />
+      <text :if={@service} x={@x + 13} y={@y + 14} fill="#818cf8" font-size="7" font-weight="bold" font-family="monospace">{@service}</text>
+      <%!-- Span name --%>
+      <text x={@x + 8} y={@y + 28} fill="#e2e8f0" font-size="9" font-weight="bold" font-family="monospace">{@span_name}</text>
+      <%!-- Status indicator --%>
+      <circle cx={@x + @box_w - 16} cy={@y + 14} r="4" fill={if @status_ok, do: "#22c55e", else: "#ef4444"} />
+      <%!-- Close X --%>
+      <text x={@x + @box_w - 28} y={@y + 17} fill="#64748b" font-size="9" cursor="pointer">x</text>
+      <%!-- Duration bar --%>
+      <rect x={@x + 10} y={@y + @header_h + 4} width={@dur_bar_w} height="10" rx="2" fill="#1e293b" />
+      <rect x={@x + 10} y={@y + @header_h + 4} width={@dur_bar_w} height="10" rx="2" fill={if @status_ok, do: "#22c55e", else: "#ef4444"} opacity="0.3" />
+      <text x={@x + 14} y={@y + @header_h + 12} fill="#e2e8f0" font-size="7" font-weight="bold" font-family="monospace">{@duration}</text>
+      <%!-- Status message --%>
+      <text :if={@status_message && @status_message != ""} x={@x + 10} y={@y + @header_h + @dur_bar_h + 10} fill="#ef4444" font-size="7" font-family="monospace">{@status_message}</text>
+      <%!-- Attributes section --%>
+      <line :if={@attrs != []} x1={@x + 8} y1={@y + @header_h + @dur_bar_h + @status_msg_h + 2} x2={@x + @box_w - 8} y2={@y + @header_h + @dur_bar_h + @status_msg_h + 2} stroke="#334155" stroke-width="0.5" />
+      <text :if={@attrs != []} x={@x + 10} y={@y + @header_h + @dur_bar_h + @status_msg_h + 12} fill="#64748b" font-size="6" font-family="monospace">ATTRIBUTES</text>
+      <g :for={{row, i} <- Enum.with_index(@attrs)}>
+        <text x={@x + 10} y={@y + @header_h + @dur_bar_h + @status_msg_h + 24 + i * 12} fill="#94a3b8" font-size="7" font-family="monospace">{elem(row, 0)}</text>
+        <text x={@x + 80} y={@y + @header_h + @dur_bar_h + @status_msg_h + 24 + i * 12} fill="#e2e8f0" font-size="7" font-family="monospace">{elem(row, 1)}</text>
+      </g>
+    </g>
+    """
+  end
+
+  defp format_popover_timestamp(nil), do: nil
+
+  defp format_popover_timestamp(ts) when is_integer(ts) do
+    case DateTime.from_unix(ts, :millisecond) do
+      {:ok, dt} ->
+        Calendar.strftime(dt, "%H:%M:%S.") <> String.pad_leading("#{rem(ts, 1000)}", 3, "0")
+
+      _ ->
+        "#{ts}"
+    end
+  end
+
+  defp format_popover_timestamp(ts), do: "#{ts}"
+
+  defp format_popover_duration(nil), do: "?"
+
+  defp format_popover_duration(ns) when is_integer(ns) do
+    cond do
+      ns < 1_000 -> "#{ns}ns"
+      ns < 1_000_000 -> "#{Float.round(ns / 1_000, 1)}µs"
+      ns < 1_000_000_000 -> "#{Float.round(ns / 1_000_000, 1)}ms"
+      true -> "#{Float.round(ns / 1_000_000_000, 2)}s"
+    end
+  end
+
+  defp format_popover_duration(_), do: "?"
+
+  defp wrap_text(text, max_chars) do
+    text
+    |> String.split("\n")
+    |> Enum.flat_map(fn line ->
+      if String.length(line) <= max_chars do
+        [line]
+      else
+        line
+        |> String.graphemes()
+        |> Enum.chunk_every(max_chars)
+        |> Enum.map(&Enum.join/1)
+      end
+    end)
+    |> Enum.take(15)
+  end
+
+  defp log_level_color(:error), do: "#ef4444"
+  defp log_level_color(:warning), do: "#f59e0b"
+  defp log_level_color(:info), do: "#22c55e"
+  defp log_level_color(_), do: "#94a3b8"
+
+  defp host_combobox(assigns) do
+    filtered =
+      if assigns.filter == "" do
+        assigns.hosts
+      else
+        pattern = String.downcase(assigns.filter)
+        Enum.filter(assigns.hosts, &String.contains?(String.downcase(&1), pattern))
+      end
+
+    assigns = assign(assigns, filtered: filtered)
+
+    ~H"""
+    <div class="host-combobox" phx-click-away="host_combo:close">
+      <input
+        type="text"
+        class="host-combobox__input"
+        placeholder={@selected || "Search hosts..."}
+        value={@filter}
+        phx-keyup="host_combo:filter"
+        phx-focus="host_combo:open"
+      />
+      <div :if={@filter != "" || @selected == nil} class="host-combobox__dropdown">
+        <button
+          :for={host <- @filtered}
+          class={"host-combobox__option#{if host == @selected, do: " host-combobox__option--active", else: ""}"}
+          phx-click="set_place_host"
+          phx-value-host={host}
+        >
+          {host}
+        </button>
+        <span :if={@filtered == []} class="host-combobox__empty">No matches</span>
+      </div>
     </div>
     """
   end
@@ -519,49 +842,61 @@ defmodule TimelessUIWeb.CanvasLive do
     {:noreply, update_canvas(socket, canvas)}
   end
 
+  def handle_event("zoom_reset", _params, socket) do
+    vb = socket.assigns.canvas.view_box
+    # 100% = 1200 width; maintain aspect ratio and center
+    target_w = 1200.0
+    target_h = target_w * (vb.height / vb.width)
+    center_x = vb.min_x + vb.width / 2
+    center_y = vb.min_y + vb.height / 2
+
+    new_vb = %ViewBox{
+      min_x: center_x - target_w / 2,
+      min_y: center_y - target_h / 2,
+      width: target_w,
+      height: target_h
+    }
+
+    canvas = %{socket.assigns.canvas | view_box: new_vb}
+
+    socket =
+      socket
+      |> update_canvas(canvas)
+      |> push_event("set-viewbox", %{
+        x: new_vb.min_x,
+        y: new_vb.min_y,
+        width: new_vb.width,
+        height: new_vb.height
+      })
+
+    {:noreply, socket}
+  end
+
   def handle_event("canvas:click", %{"x" => x, "y" => y}, socket) do
     case socket.assigns.mode do
       :place ->
         require_edit(socket, fn ->
-          type = socket.assigns.place_type
-          defaults = Element.defaults_for(type)
+          case socket.assigns.place_kind do
+            :host ->
+              host = socket.assigns.place_host
 
-          # For canvas elements, atomically create the child canvas first
-          meta =
-            if type == :canvas do
-              case Canvases.create_child_canvas(
-                     socket.assigns.canvas_id,
-                     "Sub-canvas #{socket.assigns.canvas.next_id}"
-                   ) do
-                {:ok, child} -> %{"canvas_id" => to_string(child.id)}
-                {:error, _} -> %{}
+              if host do
+                place_host_element(socket, host, x / 1.0, y / 1.0)
+              else
+                {:noreply, socket}
               end
-            else
-              %{}
-            end
 
-          {canvas, el} =
-            Canvas.add_element(socket.assigns.canvas, %{
-              type: type,
-              x: x / 1.0,
-              y: y / 1.0,
-              color: defaults.color,
-              width: defaults.width,
-              height: defaults.height,
-              label: "#{@type_labels[type] || type} #{socket.assigns.canvas.next_id}",
-              meta: meta
-            })
-
-          maybe_register_stream(el)
-
-          {:noreply, push_canvas(socket, canvas) |> schedule_autosave()}
+            type when type in [:rect, :canvas, :text] ->
+              place_typed_element(socket, type, x / 1.0, y / 1.0)
+          end
         end)
 
       :connect ->
         {:noreply, assign(socket, connect_from: nil)}
 
       :select ->
-        {:noreply, assign(socket, selected_ids: MapSet.new())}
+        {:noreply,
+         assign(socket, selected_ids: MapSet.new(), available_series: [], stream_popover: nil)}
     end
   end
 
@@ -586,14 +921,60 @@ defmodule TimelessUIWeb.CanvasLive do
         end)
 
       _ ->
-        {:noreply, assign(socket, selected_ids: MapSet.new([id]))}
+        {:noreply,
+         socket
+         |> assign(selected_ids: MapSet.new([id]))
+         |> fetch_series_for_selected(id)}
     end
   end
 
   def handle_event("element:dblclick", %{"id" => id}, socket) do
     case Map.get(socket.assigns.canvas.elements, id) do
       %{type: :canvas, meta: %{"canvas_id" => canvas_id}} when canvas_id != "" ->
+        # Flush pending autosave before navigating away
+        if socket.assigns.can_edit do
+          data = Serializer.encode(socket.assigns.canvas)
+          Canvases.update_canvas_data(socket.assigns.canvas_id, data)
+        end
+
         {:noreply, push_navigate(socket, to: ~p"/canvas/#{canvas_id}")}
+
+      %{type: :graph} ->
+        if socket.assigns.expanded_graph_id == id do
+          # Collapse: restore original viewBox
+          socket =
+            case socket.assigns.pre_expand_viewbox do
+              %ViewBox{} = vb ->
+                push_event(socket, "set-viewbox", %{
+                  x: vb.min_x,
+                  y: vb.min_y,
+                  width: vb.width,
+                  height: vb.height
+                })
+
+              _ ->
+                socket
+            end
+
+          {:noreply,
+           assign(socket,
+             expanded_graph_id: nil,
+             expanded_graph_data: [],
+             pre_expand_viewbox: nil
+           )}
+        else
+          # Expand: fetch high-res data, zoom to element
+          expanded_data = fetch_expanded_data(socket, id)
+
+          socket =
+            assign(socket,
+              expanded_graph_id: id,
+              expanded_graph_data: expanded_data,
+              pre_expand_viewbox: socket.assigns.canvas.view_box
+            )
+
+          {:noreply, auto_zoom_to_element(socket, id)}
+        end
 
       _ ->
         {:noreply, socket}
@@ -666,8 +1047,28 @@ defmodule TimelessUIWeb.CanvasLive do
     {:noreply, assign(socket, mode: String.to_existing_atom(mode), connect_from: nil)}
   end
 
-  def handle_event("set_place_type", %{"type" => type}, socket) do
-    {:noreply, assign(socket, place_type: String.to_existing_atom(type))}
+  def handle_event("set_place_host", %{"host" => host}, socket) do
+    {:noreply, assign(socket, place_host: host, host_filter: "", place_kind: :host)}
+  end
+
+  def handle_event("set_host_type", %{"host_type" => type}, socket) do
+    {:noreply, assign(socket, place_host_type: String.to_existing_atom(type))}
+  end
+
+  def handle_event("set_place_kind", %{"kind" => kind}, socket) do
+    {:noreply, assign(socket, place_kind: String.to_existing_atom(kind))}
+  end
+
+  def handle_event("host_combo:filter", %{"value" => value}, socket) do
+    {:noreply, assign(socket, host_filter: value)}
+  end
+
+  def handle_event("host_combo:open", _params, socket) do
+    {:noreply, assign(socket, host_filter: "")}
+  end
+
+  def handle_event("host_combo:close", _params, socket) do
+    {:noreply, assign(socket, host_filter: "")}
   end
 
   def handle_event("toggle_grid", _params, socket) do
@@ -766,7 +1167,41 @@ defmodule TimelessUIWeb.CanvasLive do
   end
 
   def handle_event("canvas:deselect", _params, socket) do
-    {:noreply, assign(socket, selected_ids: MapSet.new(), connect_from: nil)}
+    {:noreply,
+     assign(socket,
+       selected_ids: MapSet.new(),
+       connect_from: nil,
+       available_series: [],
+       stream_popover: nil
+     )}
+  end
+
+  def handle_event(
+        "stream:entry_click",
+        %{"element_id" => element_id, "index" => index, "type" => type},
+        socket
+      ) do
+    entries = Map.get(socket.assigns.stream_data, element_id, [])
+    entry = Enum.at(entries, index)
+
+    if entry do
+      element = socket.assigns.canvas.elements[element_id]
+
+      popover = %{
+        type: type,
+        entry: entry,
+        x: element.x + element.width + 10,
+        y: element.y + 15 + index * 14
+      }
+
+      {:noreply, assign(socket, stream_popover: popover)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("stream:close_popover", _params, socket) do
+    {:noreply, assign(socket, stream_popover: nil)}
   end
 
   def handle_event("select_all", _params, socket) do
@@ -889,6 +1324,111 @@ defmodule TimelessUIWeb.CanvasLive do
     end)
   end
 
+  def handle_event(
+        "place_child_element",
+        %{"type" => type_str, "element_id" => source_id},
+        socket
+      ) do
+    require_edit(socket, fn ->
+      source = socket.assigns.canvas.elements[source_id]
+
+      if source do
+        type = String.to_existing_atom(type_str)
+        host = source.meta["host"] || source.meta["service_name"]
+        defaults = Element.defaults_for(type)
+
+        existing_below =
+          socket.assigns.canvas.elements
+          |> Map.values()
+          |> Enum.count(fn el ->
+            el.x == source.x and el.y > source.y + source.height
+          end)
+
+        y_offset = source.height + 20 + existing_below * 70
+
+        meta =
+          case type do
+            :log_stream -> %{}
+            :trace_stream -> %{}
+          end
+
+        {canvas, el} =
+          Canvas.add_element(socket.assigns.canvas, %{
+            type: type,
+            x: source.x,
+            y: source.y + y_offset,
+            width: defaults.width,
+            height: defaults.height,
+            color: defaults.color,
+            label: "#{if type == :log_stream, do: "Logs", else: "Traces"} (#{host})",
+            meta: meta
+          })
+
+        case type do
+          :log_stream ->
+            StreamManager.register_log_stream(el.id, build_log_opts(meta))
+
+          :trace_stream ->
+            StreamManager.register_trace_stream(el.id, build_trace_opts(meta))
+        end
+
+        {:noreply, push_canvas(socket, canvas) |> schedule_autosave()}
+      else
+        {:noreply, socket}
+      end
+    end)
+  end
+
+  def handle_event(
+        "place_series_graph",
+        %{"metric_name" => metric_name, "element_id" => source_id},
+        socket
+      ) do
+    require_edit(socket, fn ->
+      source = socket.assigns.canvas.elements[source_id]
+
+      if source do
+        host = source.meta["host"] || source.meta["service_name"]
+        defaults = Element.defaults_for(:graph)
+
+        # Count existing graphs below this element to stack them
+        existing_below =
+          socket.assigns.canvas.elements
+          |> Map.values()
+          |> Enum.count(fn el ->
+            el.type == :graph and el.x == source.x and
+              el.y > source.y + source.height
+          end)
+
+        y_offset = source.height + 20 + existing_below * 70
+
+        {canvas, el} =
+          Canvas.add_element(socket.assigns.canvas, %{
+            type: :graph,
+            x: source.x,
+            y: source.y + y_offset,
+            width: defaults.width,
+            height: defaults.height,
+            color: defaults.color,
+            label: metric_name,
+            meta: %{"host" => host, "metric_name" => metric_name}
+          })
+
+        StatusManager.register_elements([el])
+
+        socket =
+          socket
+          |> push_canvas(canvas)
+          |> backfill_graph(el)
+          |> schedule_autosave()
+
+        {:noreply, socket}
+      else
+        {:noreply, socket}
+      end
+    end)
+  end
+
   # Properties panel updates
 
   def handle_event("property:update_element", %{"element_id" => id} = params, socket) do
@@ -910,10 +1450,11 @@ defmodule TimelessUIWeb.CanvasLive do
 
   def handle_event("property:update_meta", %{"element_id" => id} = params, socket) do
     require_edit(socket, fn ->
+      old_meta = socket.assigns.canvas.elements[id].meta
       meta_fields = Element.meta_fields(socket.assigns.canvas.elements[id].type)
 
       new_meta =
-        Enum.reduce(meta_fields, socket.assigns.canvas.elements[id].meta, fn field, meta ->
+        Enum.reduce(meta_fields, old_meta, fn field, meta ->
           case params[field] do
             nil -> meta
             "" -> Map.delete(meta, field)
@@ -937,7 +1478,17 @@ defmodule TimelessUIWeb.CanvasLive do
           :ok
       end
 
-      {:noreply, push_canvas(socket, canvas) |> schedule_autosave()}
+      # Re-fetch series if host changed
+      socket = push_canvas(socket, canvas) |> schedule_autosave()
+
+      socket =
+        if new_meta["host"] != old_meta["host"] do
+          fetch_series_for_selected(socket, id)
+        else
+          socket
+        end
+
+      {:noreply, socket}
     end)
   end
 
@@ -1061,7 +1612,19 @@ defmodule TimelessUIWeb.CanvasLive do
       points = Map.get(graph_data, element_id, [])
       points = Enum.take([{timestamp, value} | points], @max_graph_points)
       graph_data = Map.put(graph_data, element_id, points)
-      {:noreply, assign(socket, graph_data: graph_data)}
+      socket = assign(socket, graph_data: graph_data)
+
+      # Also update expanded data if this element is expanded
+      socket =
+        if socket.assigns.expanded_graph_id == element_id do
+          points = socket.assigns.expanded_graph_data
+          points = Enum.take([{timestamp, value} | points], @max_graph_points_expanded)
+          assign(socket, expanded_graph_data: points)
+        else
+          socket
+        end
+
+      {:noreply, socket}
     else
       {:noreply, socket}
     end
@@ -1113,8 +1676,10 @@ defmodule TimelessUIWeb.CanvasLive do
 
   # --- Private helpers ---
 
-  defp sorted_elements(elements) do
-    elements |> Map.values() |> Enum.sort_by(&{&1.z_index, &1.id})
+  defp sorted_elements(elements, expanded_id) do
+    elements
+    |> Map.values()
+    |> Enum.sort_by(&{if(&1.id == expanded_id, do: 1, else: 0), &1.z_index, &1.id})
   end
 
   defp graph_points_for(%{type: :graph} = element, graph_data) do
@@ -1130,10 +1695,13 @@ defmodule TimelessUIWeb.CanvasLive do
         points = Enum.reverse(points)
         count = length(points)
 
-        {min_val, max_val} =
+        {data_min, data_max} =
           Enum.min_max_by(points, &elem(&1, 1))
           |> then(fn {min, max} -> {elem(min, 1), elem(max, 1)} end)
 
+        meta = element.meta || %{}
+        min_val = parse_bound(meta["y_min"], data_min)
+        max_val = parse_bound(meta["y_max"], data_max)
         val_range = max(max_val - min_val, 0.1)
         padding = 14
 
@@ -1141,10 +1709,12 @@ defmodule TimelessUIWeb.CanvasLive do
         |> Enum.with_index()
         |> Enum.map(fn {{_ts, val}, i} ->
           x = element.x + i / max(count - 1, 1) * element.width
+          # Clamp to bounds
+          clamped = max(min(val, max_val), min_val)
 
           y =
             element.y + padding +
-              (1 - (val - min_val) / val_range) * (element.height - padding - 2)
+              (1 - (clamped - min_val) / val_range) * (element.height - padding - 2)
 
           "#{Float.round(x, 1)},#{Float.round(y, 1)}"
         end)
@@ -1154,6 +1724,16 @@ defmodule TimelessUIWeb.CanvasLive do
 
   defp graph_points_for(_element, _graph_data), do: ""
 
+  defp parse_bound(nil, fallback), do: fallback
+  defp parse_bound("", fallback), do: fallback
+
+  defp parse_bound(str, fallback) when is_binary(str) do
+    case Float.parse(str) do
+      {f, _} -> f
+      :error -> fallback
+    end
+  end
+
   defp graph_value_for(%{type: :graph} = element, graph_data) do
     case Map.get(graph_data, element.id) do
       [{_ts, val} | _] -> :erlang.float_to_binary(val / 1.0, decimals: 1)
@@ -1162,6 +1742,24 @@ defmodule TimelessUIWeb.CanvasLive do
   end
 
   defp graph_value_for(_element, _graph_data), do: nil
+
+  defp backfill_graph(socket, %{type: :graph} = el) do
+    time = socket.assigns.timeline_time || DateTime.utc_now()
+    span = socket.assigns.timeline_span
+    from = DateTime.add(time, -span, :second)
+    metric_name = Map.get(el.meta, "metric_name", "default")
+
+    points =
+      case StatusManager.metric_range(el.id, metric_name, from, time) do
+        {:ok, pts} when pts != [] -> downsample(pts, @max_graph_points)
+        _ -> []
+      end
+
+    graph_data = Map.put(socket.assigns.graph_data, el.id, points)
+    assign(socket, graph_data: graph_data)
+  end
+
+  defp backfill_graph(socket, _el), do: socket
 
   defp fill_graph_data_at(socket, time) do
     graph_elements =
@@ -1187,7 +1785,35 @@ defmodule TimelessUIWeb.CanvasLive do
         Map.put(acc, id, points)
       end)
 
-    assign(socket, graph_data: graph_data)
+    socket = assign(socket, graph_data: graph_data)
+
+    # If a graph is expanded, also refresh its high-res data
+    case socket.assigns.expanded_graph_id do
+      nil ->
+        socket
+
+      expanded_id ->
+        expanded_data = fetch_expanded_data(socket, expanded_id)
+        assign(socket, expanded_graph_data: expanded_data)
+    end
+  end
+
+  defp fetch_expanded_data(socket, element_id) do
+    case Map.get(socket.assigns.canvas.elements, element_id) do
+      %{type: :graph} = element ->
+        metric_name = Map.get(element.meta, "metric_name", "default")
+        span = socket.assigns.timeline_span
+        time = socket.assigns.timeline_time || DateTime.utc_now()
+        from = DateTime.add(time, -span, :second)
+
+        case StatusManager.metric_range(element_id, metric_name, from, time) do
+          {:ok, pts} when pts != [] -> downsample(pts, @max_graph_points_expanded)
+          _ -> []
+        end
+
+      _ ->
+        []
+    end
   end
 
   # Downsample a list of points to at most max_count, evenly spaced.
@@ -1380,15 +2006,6 @@ defmodule TimelessUIWeb.CanvasLive do
     end)
   end
 
-  defp maybe_register_stream(%{type: :log_stream} = el) do
-    StreamManager.register_log_stream(el.id, build_log_opts(el.meta))
-  end
-
-  defp maybe_register_stream(%{type: :trace_stream} = el) do
-    StreamManager.register_trace_stream(el.id, build_trace_opts(el.meta))
-  end
-
-  defp maybe_register_stream(_el), do: :ok
 
   defp build_log_opts(meta) do
     opts = []
@@ -1443,6 +2060,106 @@ defmodule TimelessUIWeb.CanvasLive do
       nil -> opts
       "" -> opts
       kind -> Keyword.put(opts, :kind, String.to_existing_atom(kind))
+    end
+  end
+
+  defp auto_zoom_to_element(socket, element_id) do
+    element = socket.assigns.canvas.elements[element_id]
+    exp_w = element.width * 4
+    exp_h = element.height * 5
+    padding = 40
+
+    push_event(socket, "set-viewbox", %{
+      x: element.x - padding,
+      y: element.y - padding,
+      width: exp_w + padding * 2,
+      height: exp_h + padding * 2
+    })
+  end
+
+  defp refresh_discovered_hosts(socket) do
+    hosts = StatusManager.list_hosts()
+    first = List.first(hosts)
+    assign(socket, discovered_hosts: hosts, place_host: first)
+  end
+
+  defp place_host_element(socket, host, x, y) do
+    type = socket.assigns.place_host_type
+    defaults = Element.defaults_for(type)
+
+    {canvas, el} =
+      Canvas.add_element(socket.assigns.canvas, %{
+        type: type,
+        x: x,
+        y: y,
+        color: defaults.color,
+        width: defaults.width,
+        height: defaults.height,
+        label: host,
+        meta: %{"host" => host}
+      })
+
+    StatusManager.register_elements([el])
+
+    socket =
+      socket
+      |> push_canvas(canvas)
+      |> assign(selected_ids: MapSet.new([el.id]))
+      |> fetch_series_for_selected(el.id)
+      |> schedule_autosave()
+
+    {:noreply, socket}
+  end
+
+  defp place_typed_element(socket, type, x, y) do
+    defaults = Element.defaults_for(type)
+
+    meta =
+      if type == :canvas do
+        case Canvases.create_child_canvas(
+               socket.assigns.canvas_id,
+               "Sub-canvas #{socket.assigns.canvas.next_id}"
+             ) do
+          {:ok, child} -> %{"canvas_id" => to_string(child.id)}
+          {:error, _} -> %{}
+        end
+      else
+        %{}
+      end
+
+    {canvas, _el} =
+      Canvas.add_element(socket.assigns.canvas, %{
+        type: type,
+        x: x,
+        y: y,
+        color: defaults.color,
+        width: defaults.width,
+        height: defaults.height,
+        label: "#{type |> to_string() |> String.capitalize()} #{socket.assigns.canvas.next_id}",
+        meta: meta
+      })
+
+    {:noreply,
+     socket
+     |> push_canvas(canvas)
+     |> assign(mode: :select, place_kind: :host)
+     |> schedule_autosave()}
+  end
+
+  defp fetch_series_for_selected(socket, element_id) do
+    case Map.get(socket.assigns.canvas.elements, element_id) do
+      %Element{meta: meta} when is_map(meta) ->
+        host = meta["host"] || meta["service_name"]
+
+        if host && host != "" do
+          series = StatusManager.list_series_for_host(host)
+          assign(socket, available_series: series)
+        else
+          assign(socket, available_series: [])
+        end
+
+      _ ->
+        assign(socket, available_series: [])
     end
   end
 

@@ -32,13 +32,60 @@ const CanvasHook = {
 
     this._zoomDebounce = null;
 
+    // Space key state for pan override
+    this._spaceHeld = false;
+    this._onSpaceDown = (e) => {
+      if (e.code === "Space" && !e.target.matches("input, textarea, select")) {
+        e.preventDefault();
+        this._spaceHeld = true;
+        this.svg.style.cursor = "grab";
+      }
+    };
+    this._onSpaceUp = (e) => {
+      if (e.code === "Space") {
+        this._spaceHeld = false;
+        this.svg.style.cursor = "";
+      }
+    };
+    document.addEventListener("keydown", this._onSpaceDown);
+    document.addEventListener("keyup", this._onSpaceUp);
+
     // Keyboard shortcuts
     this._onKeyDown = (e) => this.onKeyDown(e);
     document.addEventListener("keydown", this._onKeyDown);
 
+    // Tooltip elements for expanded graphs
+    this._tooltip = null;
+    this._tooltipLine = null;
+    this._tooltipDot = null;
+    this._tooltipBg = null;
+    this._tooltipText = null;
+    this._tooltipText2 = null;
+
+    this.svg.addEventListener("mousemove", (e) => this.onGraphHover(e));
+    this.svg.addEventListener("mouseleave", () => this.hideTooltip());
+
+    // Handle set-viewbox events from the server
+    this.handleEvent("set-viewbox", ({ x, y, width, height }) => {
+      this.setViewBox(x, y, width, height);
+      this.pushEvent("canvas:zoom", {
+        min_x: x,
+        min_y: y,
+        width: width,
+        height: height,
+      });
+    });
   },
 
   updated() {
+    // Preserve JS-side viewBox across LiveView DOM patches.
+    // LiveView will re-set the viewBox attribute from server state, which is
+    // stale during panning/zooming. Re-apply the current JS viewBox immediately.
+    if (this._jsViewBox) {
+      const { minX, minY, width, height } = this._jsViewBox;
+      this.setViewBox(minX, minY, width, height);
+    }
+
     // After drop: server has patched new coordinates, remove drag transforms
     if (this._pendingDrop) {
       for (const id of this._pendingDrop.ids) {
@@ -68,6 +115,8 @@ const CanvasHook = {
 
   destroyed() {
     document.removeEventListener("keydown", this._onKeyDown);
+    document.removeEventListener("keydown", this._onSpaceDown);
+    document.removeEventListener("keyup", this._onSpaceUp);
   },
 
   // --- Helpers ---
@@ -83,6 +132,8 @@ const CanvasHook = {
     vb.y = minY;
     vb.width = width;
     vb.height = height;
+    // Track JS-side viewBox so we can re-apply after LiveView DOM patches
+    this._jsViewBox = { minX, minY, width, height };
   },
 
   clientToSvgDelta(dxPx, dyPx) {
@@ -145,11 +196,27 @@ const CanvasHook = {
       }
     }
 
+    // Check if clicking a stream entry (log/trace row)
+    const streamRow = e.target.closest("[data-stream-entry]");
+    if (streamRow) {
+      const data = JSON.parse(streamRow.dataset.streamEntry);
+      this.pushEvent("stream:entry_click", data);
+      this.dragging = { type: "stream_click" };
+      return;
+    }
+
     // Check if clicking a connection
     const connGroup = e.target.closest("[data-connection-id]");
     if (connGroup) {
       const id = connGroup.dataset.connectionId;
       this.dragging = { type: "connection_click", id };
+      return;
+    }
+
+    // Space or Option/Alt on an element = pan, not drag
+    if (this._spaceHeld || e.altKey) {
+      this.svg.style.cursor = "grabbing";
+      this.dragging = { type: "pan" };
       return;
     }
 
@@ -184,8 +251,12 @@ const CanvasHook = {
       return;
     }
 
-    // In select mode, start marquee selection; otherwise pan
-    if (this.getMode() === "select") {
+    // Space or Option/Alt held = pan in any mode
+    if (this._spaceHeld || e.altKey) {
+      this.svg.style.cursor = "grabbing";
+      this.dragging = { type: "pan" };
+    } else if (this.getMode() === "select") {
+      // In select mode, start marquee selection
       const svgStart = this.clientToSvg(e.clientX, e.clientY);
       this.dragging = { type: "marquee", svgStart, shiftKey: e.shiftKey };
     } else {
@@ -342,6 +413,7 @@ const CanvasHook = {
     this.dragging = null;
     this.startClient = null;
     this.lastClient = null;
+    this.svg.style.cursor = this._spaceHeld ? "grab" : "";
     this.svg.releasePointerCapture(e.pointerId);
   },
 
@@ -664,6 +736,170 @@ const CanvasHook = {
     const rx = parseFloat(body.getAttribute("rx"));
     const ry = parseFloat(body.getAttribute("ry"));
     return { x: cx - rx, y: cy - ry, w: rx * 2, h: ry * 2 };
+  },
+
+  // --- Expanded Graph Tooltip ---
+
+  onGraphHover(e) {
+    const expandedGroup = e.target.closest("[data-expanded]");
+    if (!expandedGroup) {
+      this.hideTooltip();
+      return;
+    }
+
+    const pointsJson = expandedGroup.getAttribute("data-points");
+    if (!pointsJson) return;
+
+    let points;
+    try {
+      points = JSON.parse(pointsJson);
+    } catch {
+      return;
+    }
+    if (!points.length) return;
+
+    const svgPt = this.clientToSvg(e.clientX, e.clientY);
+
+    // Find the polyline to get plot bounds
+    const polyline = expandedGroup.querySelector(".canvas-graph__line");
+    if (!polyline) return;
+
+    const polyPoints = polyline
+      .getAttribute("points")
+      .trim()
+      .split(/\s+/)
+      .map((p) => {
+        const [x, y] = p.split(",").map(Number);
+        return { x, y };
+      });
+    if (polyPoints.length < 2) return;
+
+    const plotMinX = polyPoints[0].x;
+    const plotMaxX = polyPoints[polyPoints.length - 1].x;
+    const plotW = plotMaxX - plotMinX;
+
+    // Check if cursor is within plot X range
+    if (svgPt.x < plotMinX || svgPt.x > plotMaxX) {
+      this.hideTooltip();
+      return;
+    }
+
+    // Find nearest point index by X fraction
+    const frac = (svgPt.x - plotMinX) / plotW;
+    const idx = Math.round(frac * (polyPoints.length - 1));
+    const clampIdx = Math.max(0, Math.min(idx, polyPoints.length - 1));
+    const nearPt = polyPoints[clampIdx];
+    const dataPoint = points[clampIdx];
+    if (!nearPt || !dataPoint) return;
+
+    this.showTooltip(nearPt.x, nearPt.y, dataPoint, expandedGroup);
+  },
+
+  showTooltip(x, y, dataPoint, parentGroup) {
+    const ns = "http://www.w3.org/2000/svg";
+
+    if (!this._tooltip) {
+      this._tooltipLine = document.createElementNS(ns, "line");
+      this._tooltipLine.setAttribute("stroke", "#475569");
+      this._tooltipLine.setAttribute("stroke-width", "0.5");
+      this._tooltipLine.setAttribute("stroke-dasharray", "3 2");
+      this._tooltipLine.setAttribute("pointer-events", "none");
+
+      this._tooltipDot = document.createElementNS(ns, "circle");
+      this._tooltipDot.setAttribute("r", "3");
+      this._tooltipDot.setAttribute("fill", "#e2e8f0");
+      this._tooltipDot.setAttribute("stroke", "#0c1222");
+      this._tooltipDot.setAttribute("stroke-width", "1");
+      this._tooltipDot.setAttribute("pointer-events", "none");
+
+      this._tooltip = document.createElementNS(ns, "g");
+      this._tooltip.setAttribute("pointer-events", "none");
+
+      this._tooltipBg = document.createElementNS(ns, "rect");
+      this._tooltipBg.setAttribute("rx", "3");
+      this._tooltipBg.setAttribute("fill", "#1e293b");
+      this._tooltipBg.setAttribute("stroke", "#334155");
+      this._tooltipBg.setAttribute("stroke-width", "0.5");
+      this._tooltipBg.setAttribute("opacity", "0.95");
+
+      this._tooltipText = document.createElementNS(ns, "text");
+      this._tooltipText.setAttribute("fill", "#e2e8f0");
+      this._tooltipText.setAttribute("font-size", "8");
+      this._tooltipText.setAttribute("font-family", "monospace");
+
+      this._tooltipText2 = document.createElementNS(ns, "text");
+      this._tooltipText2.setAttribute("fill", "#94a3b8");
+      this._tooltipText2.setAttribute("font-size", "7");
+      this._tooltipText2.setAttribute("font-family", "monospace");
+
+      this._tooltip.appendChild(this._tooltipBg);
+      this._tooltip.appendChild(this._tooltipText);
+      this._tooltip.appendChild(this._tooltipText2);
+    }
+
+    // Get plot area bounds from the body rect
+    const bodyRect = parentGroup.querySelector(".canvas-element__body");
+    const bodyY = parseFloat(bodyRect.getAttribute("y"));
+    const bodyH = parseFloat(bodyRect.getAttribute("height"));
+
+    // Crosshair line spanning the plot height
+    this._tooltipLine.setAttribute("x1", x);
+    this._tooltipLine.setAttribute("y1", bodyY + 30);
+    this._tooltipLine.setAttribute("x2", x);
+    this._tooltipLine.setAttribute("y2", bodyY + bodyH - 20);
+
+    // Dot on the data point
+    this._tooltipDot.setAttribute("cx", x);
+    this._tooltipDot.setAttribute("cy", y);
+
+    // Format value
+    const val = dataPoint.v;
+    let valStr;
+    const abs = Math.abs(val);
+    if (abs >= 1e9) valStr = (val / 1e9).toFixed(1) + "G";
+    else if (abs >= 1e6) valStr = (val / 1e6).toFixed(1) + "M";
+    else if (abs >= 1e4) valStr = (val / 1e3).toFixed(1) + "K";
+    else if (abs >= 100) valStr = Math.round(val).toString();
+    else if (abs >= 1) valStr = val.toFixed(2);
+    else if (abs === 0) valStr = "0";
+    else valStr = val.toFixed(3);
+
+    // Format time
+    const d = new Date(dataPoint.t);
+    const hh = String(d.getHours()).padStart(2, "0");
+    const mm = String(d.getMinutes()).padStart(2, "0");
+    const ss = String(d.getSeconds()).padStart(2, "0");
+    const timeStr = `${hh}:${mm}:${ss}`;
+
+    this._tooltipText.textContent = valStr;
+    this._tooltipText2.textContent = timeStr;
+
+    // Position tooltip box offset from the dot
+    const tipX = x + 6;
+    const tipY = y - 20;
+    this._tooltipBg.setAttribute("x", tipX - 2);
+    this._tooltipBg.setAttribute("y", tipY - 8);
+    this._tooltipBg.setAttribute("width", "58");
+    this._tooltipBg.setAttribute("height", "22");
+    this._tooltipText.setAttribute("x", tipX);
+    this._tooltipText.setAttribute("y", tipY);
+    this._tooltipText2.setAttribute("x", tipX);
+    this._tooltipText2.setAttribute("y", tipY + 10);
+
+    // Append to SVG (not to the group, so tooltip doesn't get clipped)
+    if (!this._tooltipLine.parentNode) {
+      this.svg.appendChild(this._tooltipLine);
+      this.svg.appendChild(this._tooltipDot);
+      this.svg.appendChild(this._tooltip);
+    }
+  },
+
+  hideTooltip() {
+    if (this._tooltipLine && this._tooltipLine.parentNode) {
+      this._tooltipLine.remove();
+      this._tooltipDot.remove();
+      this._tooltip.remove();
+    }
   },
 
   resizeElementVisual(id, width, height) {

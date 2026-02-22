@@ -83,7 +83,7 @@ defmodule TimelessUI.Canvas.Element do
     cache: ~w(engine host port),
     router: ~w(host ip os role),
     network: ~w(host cidr vlan),
-    graph: ~w(metric_name),
+    graph: ~w(host metric_name y_min y_max),
     log_stream: ~w(level metadata_filter),
     trace_stream: ~w(service name kind),
     canvas: ~w(canvas_id),
