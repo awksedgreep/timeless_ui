@@ -834,67 +834,74 @@ defmodule TimelessUIWeb.CanvasComponents do
         _ -> {now_ms - 86_400_000, now_ms}
       end
 
-    # Slider positions the window END within [data_start + span .. data_end]
+    # Slider positions the window CENTER within the data range
     span_ms = assigns.timeline_span * 1000
-    slider_min = data_start_ms + span_ms
-    slider_max = max(data_end_ms, slider_min + 60_000)
+    half_span = div(span_ms, 2)
+    slider_min = data_start_ms + half_span
+    slider_max = max(data_end_ms - half_span, slider_min + 60_000)
 
-    # Current slider value: window end position
+    # Current slider value: window center position
     {window_end_ms, is_live} =
       case assigns.timeline_time do
         nil -> {now_ms, true}
         %DateTime{} = t -> {DateTime.to_unix(t, :millisecond), false}
       end
 
+    window_center_ms = window_end_ms - half_span
     window_start_ms = window_end_ms - span_ms
+    window_ratio = span_ms / max(slider_max - slider_min, 1)
 
     assigns =
       assign(assigns,
         span_options: @span_options,
         slider_min: slider_min,
         slider_max: slider_max,
-        slider_value: min(window_end_ms, slider_max),
+        slider_value: min(window_center_ms, slider_max),
+        window_ratio: min(window_ratio, 1.0),
         is_live: is_live,
         window_start: format_ts(window_start_ms),
         window_end: format_ts(window_end_ms)
       )
 
     ~H"""
-    <form class="timeline-bar" phx-change="timeline:change" phx-submit="timeline:change" phx-throttle="500">
-      <select
-        name="span"
-        class="timeline-bar__speed"
-      >
-        <option
-          :for={{secs, label} <- @span_options}
-          value={secs}
-          selected={@timeline_span == secs}
+    <div class="timeline-bar">
+      <form phx-change="timeline:change" phx-submit="timeline:change">
+        <select
+          name="span"
+          class="timeline-bar__speed"
         >
-          {label}
-        </option>
-      </select>
+          <option
+            :for={{secs, label} <- @span_options}
+            value={secs}
+            selected={@timeline_span == secs}
+          >
+            {label}
+          </option>
+        </select>
+      </form>
 
       <span class="timeline-bar__time">{@window_start}</span>
 
-      <input
-        type="range"
-        min={@slider_min}
-        max={@slider_max}
-        value={@slider_value}
-        name="time"
-        class="timeline-bar__slider"
-      />
+      <div
+        id="timeline-slider"
+        phx-hook="TimelineSlider"
+        phx-update="ignore"
+        data-min={@slider_min}
+        data-max={@slider_max}
+        data-value={@slider_value}
+        data-window-ratio={@window_ratio}
+        data-live={to_string(@is_live)}
+        class="timeline-bar__track"
+        tabindex="0"
+      >
+        <div class="timeline-bar__density"></div>
+        <div class="timeline-bar__window"></div>
+        <div class="timeline-bar__thumb"></div>
+        <div class={"timeline-bar__live-dot#{if @is_live, do: " timeline-bar__live-dot--active", else: ""}"}></div>
+      </div>
 
       <span class="timeline-bar__time">{@window_end}</span>
-
-      <button
-        type="button"
-        phx-click="timeline:go_live"
-        class={"timeline-bar__btn#{if @is_live, do: " timeline-bar__btn--live-active", else: ""}"}
-      >
-        LIVE
-      </button>
-    </form>
+    </div>
     """
   end
 

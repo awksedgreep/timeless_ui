@@ -89,7 +89,8 @@ defmodule TimelessUIWeb.CanvasLive do
          paste_offset: 20
        )
        |> refresh_data_range()
-       |> fill_graph_data_at(DateTime.utc_now())}
+       |> fill_graph_data_at(DateTime.utc_now())
+       |> push_density_update()}
     else
       _ ->
         {:ok,
@@ -998,21 +999,16 @@ defmodule TimelessUIWeb.CanvasLive do
      socket
      |> assign(timeline_mode: :live, timeline_time: nil)
      |> refresh_data_range()
-     |> fill_graph_data_at(DateTime.utc_now())}
+     |> fill_graph_data_at(DateTime.utc_now())
+     |> push_slider_update()
+     |> push_density_update()}
   end
 
-  def handle_event("timeline:change", %{"_target" => ["time"]} = params, socket) do
-    time_ms =
-      case params["time"] do
-        val when is_binary(val) ->
-          {ms, _} = Integer.parse(val)
-          ms
-
-        val when is_number(val) ->
-          round(val)
-      end
-
-    time = DateTime.from_unix!(time_ms, :millisecond)
+  def handle_event("timeline:change", %{"time" => center_ms}, socket)
+      when is_number(center_ms) do
+    # Slider value is window center; convert back to window end for internal state
+    half_span = div(socket.assigns.timeline_span * 1000, 2)
+    time = DateTime.from_unix!(round(center_ms) + half_span, :millisecond)
     statuses = StatusManager.statuses_at(time)
     canvas = apply_statuses(socket.assigns.canvas, statuses)
 
@@ -1037,7 +1033,8 @@ defmodule TimelessUIWeb.CanvasLive do
     {:noreply,
      socket
      |> fill_graph_data_at(time)
-     |> fill_stream_data_at(time)}
+     |> fill_stream_data_at(time)
+     |> push_slider_update()}
   end
 
   def handle_event("timeline:change", _params, socket) do
@@ -1309,6 +1306,50 @@ defmodule TimelessUIWeb.CanvasLive do
     case StatusManager.time_range() do
       :empty -> assign(socket, timeline_data_range: nil)
       range -> assign(socket, timeline_data_range: range)
+    end
+  end
+
+  defp push_slider_update(socket) do
+    now_ms = System.system_time(:millisecond)
+    span_ms = socket.assigns.timeline_span * 1000
+    half_span = div(span_ms, 2)
+
+    {data_start_ms, data_end_ms} =
+      case socket.assigns.timeline_data_range do
+        {s, e} -> {DateTime.to_unix(s, :millisecond), DateTime.to_unix(e, :millisecond)}
+        _ -> {now_ms - 86_400_000, now_ms}
+      end
+
+    slider_min = data_start_ms + half_span
+    slider_max = max(data_end_ms - half_span, slider_min + 60_000)
+
+    window_end_ms =
+      case socket.assigns.timeline_time do
+        nil -> now_ms
+        %DateTime{} = t -> DateTime.to_unix(t, :millisecond)
+      end
+
+    value = min(window_end_ms - half_span, slider_max)
+    window_ratio = min(span_ms / max(slider_max - slider_min, 1), 1.0)
+    is_live = socket.assigns.timeline_time == nil
+
+    push_event(socket, "update-slider", %{
+      min: slider_min,
+      max: slider_max,
+      value: value,
+      windowRatio: window_ratio,
+      live: is_live
+    })
+  end
+
+  defp push_density_update(socket) do
+    case socket.assigns.timeline_data_range do
+      {data_start, data_end} ->
+        buckets = StatusManager.data_density(data_start, data_end, 80)
+        push_event(socket, "update-density", %{buckets: buckets})
+
+      _ ->
+        push_event(socket, "update-density", %{buckets: []})
     end
   end
 

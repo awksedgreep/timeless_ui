@@ -444,9 +444,6 @@ const CanvasHook = {
     } else if (e.key === "s" && ctrl) {
       e.preventDefault();
       this.pushEvent("canvas:save", {});
-    } else if (e.key === "l" || e.key === "L") {
-      e.preventDefault();
-      this.pushEvent("timeline:go_live", {});
     }
   },
 

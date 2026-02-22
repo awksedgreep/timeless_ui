@@ -78,4 +78,17 @@ defmodule TimelessUI.DataSource.Random do
     one_hour_ago = DateTime.add(now, -3600, :second)
     {one_hour_ago, now}
   end
+
+  @impl true
+  def event_density(_state, %DateTime{} = from, %DateTime{} = to, buckets) do
+    from_ms = DateTime.to_unix(from, :millisecond)
+    to_ms = DateTime.to_unix(to, :millisecond)
+    bucket_width = max(div(to_ms - from_ms, buckets), 1)
+
+    Enum.map(0..(buckets - 1), fn i ->
+      bucket_start = from_ms + i * bucket_width
+      seed = :erlang.phash2({:density, div(bucket_start, 10_000)})
+      rem(seed, 20) + 1
+    end)
+  end
 end

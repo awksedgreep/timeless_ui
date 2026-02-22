@@ -77,6 +77,14 @@ defmodule TimelessUI.DataSource.Manager do
     GenServer.call(server, :time_range)
   end
 
+  @doc """
+  Return event density as a list of bucket counts between `from` and `to`.
+  Returns an empty list if the data source doesn't implement `event_density/4`.
+  """
+  def data_density(from, to, buckets \\ 80, server \\ __MODULE__) do
+    GenServer.call(server, {:data_density, from, to, buckets}, 10_000)
+  end
+
   # --- Server callbacks ---
 
   @impl true
@@ -163,6 +171,17 @@ defmodule TimelessUI.DataSource.Manager do
 
   def handle_call(:time_range, _from, state) do
     {:reply, state.module.time_range(state.ds_state), state}
+  end
+
+  def handle_call({:data_density, from, to, buckets}, _from, state) do
+    result =
+      if function_exported?(state.module, :event_density, 4) do
+        state.module.event_density(state.ds_state, from, to, buckets)
+      else
+        []
+      end
+
+    {:reply, result, state}
   end
 
   @impl true

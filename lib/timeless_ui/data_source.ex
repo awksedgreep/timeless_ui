@@ -53,4 +53,13 @@ defmodule TimelessUI.DataSource do
 
   @callback time_range(state :: term()) ::
               {DateTime.t(), DateTime.t()} | :empty
+
+  @callback event_density(
+              state :: term(),
+              from :: DateTime.t(),
+              to :: DateTime.t(),
+              buckets :: pos_integer()
+            ) :: [non_neg_integer()]
+
+  @optional_callbacks [event_density: 4]
 end
