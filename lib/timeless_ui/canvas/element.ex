@@ -41,7 +41,7 @@ defmodule TimelessUI.Canvas.Element do
     cache: %{width: 100.0, height: 80.0, color: "#ef4444"},
     router: %{width: 100.0, height: 100.0, color: "#f97316"},
     network: %{width: 160.0, height: 60.0, color: "#64748b"},
-    graph: %{width: 120.0, height: 60.0, color: "#0ea5e9"},
+    graph: %{width: 220.0, height: 100.0, color: "#0ea5e9"},
     log_stream: %{width: 280.0, height: 80.0, color: "#10b981"},
     trace_stream: %{width: 280.0, height: 80.0, color: "#8b5cf6"},
     canvas: %{width: 140.0, height: 100.0, color: "#818cf8"},
@@ -120,6 +120,17 @@ defmodule TimelessUI.Canvas.Element do
       el
       | x: Float.round(el.x / grid_size) * grid_size,
         y: Float.round(el.y / grid_size) * grid_size
+    }
+  end
+
+  @doc """
+  Snap element dimensions to the nearest grid multiple. Enforces minimum one grid unit.
+  """
+  def snap_size_to_grid(%__MODULE__{} = el, grid_size) when grid_size > 0 do
+    %{
+      el
+      | width: max(Float.round(el.width / grid_size) * grid_size, grid_size),
+        height: max(Float.round(el.height / grid_size) * grid_size, grid_size)
     }
   end
 end

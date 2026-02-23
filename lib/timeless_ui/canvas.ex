@@ -80,7 +80,7 @@ defmodule TimelessUI.Canvas do
         canvas
 
       element ->
-        resized = Element.resize(element, width, height)
+        resized = Element.resize(element, width, height) |> maybe_snap_size(canvas)
         %{canvas | elements: Map.put(canvas.elements, id, resized)}
     end
   end
@@ -243,4 +243,10 @@ defmodule TimelessUI.Canvas do
   end
 
   defp maybe_snap(element, _canvas), do: element
+
+  defp maybe_snap_size(element, %{snap_to_grid: true, grid_size: gs}) do
+    Element.snap_size_to_grid(element, gs)
+  end
+
+  defp maybe_snap_size(element, _canvas), do: element
 end
