@@ -22,7 +22,8 @@ defmodule TimelessUI.Canvas.Serializer do
       "grid_visible" => canvas.grid_visible,
       "snap_to_grid" => canvas.snap_to_grid,
       "next_id" => canvas.next_id,
-      "next_conn_id" => canvas.next_conn_id
+      "next_conn_id" => canvas.next_conn_id,
+      "variables" => canvas.variables
     }
   end
 
@@ -39,7 +40,8 @@ defmodule TimelessUI.Canvas.Serializer do
       grid_visible: data["grid_visible"] != false,
       snap_to_grid: data["snap_to_grid"] != false,
       next_id: data["next_id"] || 1,
-      next_conn_id: data["next_conn_id"] || 1
+      next_conn_id: data["next_conn_id"] || 1,
+      variables: data["variables"] || %{}
     }
 
     {:ok, canvas}

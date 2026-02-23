@@ -2,7 +2,7 @@ defmodule TimelessUIWeb.CanvasLive do
   use TimelessUIWeb, :live_view
 
   alias TimelessUI.Canvas
-  alias TimelessUI.Canvas.{ViewBox, History, Element, Connection, Serializer}
+  alias TimelessUI.Canvas.{ViewBox, History, Element, Connection, Serializer, VariableResolver}
   alias TimelessUI.Canvases
   alias TimelessUI.Canvases.Policy
   alias TimelessUI.DataSource.Manager, as: StatusManager
@@ -51,9 +51,12 @@ defmodule TimelessUIWeb.CanvasLive do
 
       history = History.new(canvas)
 
+      bindings = VariableResolver.bindings(canvas.variables)
+      resolved_elements = VariableResolver.resolve_elements(canvas.elements, bindings)
+
       stream_data =
         if connected?(socket) and map_size(canvas.elements) > 0 do
-          StatusManager.register_elements(Map.values(canvas.elements))
+          StatusManager.register_elements(Map.values(resolved_elements))
           register_stream_elements(canvas.elements)
         else
           %{}
@@ -95,7 +98,9 @@ defmodule TimelessUIWeb.CanvasLive do
          available_series: [],
          discovered_hosts: [],
          host_filter: "",
-         stream_popover: nil
+         stream_popover: nil,
+         resolved_elements: resolved_elements,
+         variable_options: build_variable_options(canvas.variables)
        )
        |> refresh_data_range()
        |> refresh_discovered_hosts()
@@ -299,6 +304,30 @@ defmodule TimelessUIWeb.CanvasLive do
         </button>
       </div>
 
+      <div :if={map_size(@canvas.variables) > 0} class="canvas-var-bar">
+        <div :for={{name, definition} <- @canvas.variables} class="canvas-var-item">
+          <span class="canvas-var-label">${name}</span>
+          <select phx-change="var:change" name={name} class="canvas-var-select">
+            <option
+              :for={opt <- Map.get(@variable_options, name, [])}
+              value={opt}
+              selected={opt == definition["current"]}
+            >
+              {opt}
+            </option>
+          </select>
+          <button
+            :if={@can_edit}
+            phx-click="var:remove"
+            phx-value-name={name}
+            class="canvas-var-remove"
+            title="Remove variable"
+          >
+            &times;
+          </button>
+        </div>
+      </div>
+
       <div :if={@show_share && @is_owner} class="canvas-share-overlay">
         <.live_component
           module={TimelessUIWeb.CanvasShareComponent}
@@ -351,7 +380,7 @@ defmodule TimelessUIWeb.CanvasLive do
         />
 
         <.canvas_element
-          :for={element <- sorted_elements(@canvas.elements, @expanded_graph_id)}
+          :for={element <- sorted_elements(@resolved_elements, @expanded_graph_id)}
           :key={element.id}
           element={element}
           selected={element.id in @selected_ids}
@@ -788,18 +817,42 @@ defmodule TimelessUIWeb.CanvasLive do
 
   defp push_canvas(socket, %Canvas{} = canvas) do
     history = History.push(socket.assigns.history, canvas)
+
     assign(socket, history: history, canvas: history.present)
+    |> resolve_and_assign()
   end
 
   defp update_canvas(socket, %Canvas{} = canvas) do
     history = %{socket.assigns.history | present: canvas}
+
     assign(socket, history: history, canvas: canvas)
+    |> resolve_and_assign()
   end
 
   defp register_elements(socket) do
-    elements = Map.values(socket.assigns.canvas.elements)
+    elements = Map.values(socket.assigns.resolved_elements)
     StatusManager.register_elements(elements)
     socket
+  end
+
+  defp resolve_and_assign(socket) do
+    bindings = VariableResolver.bindings(socket.assigns.canvas.variables)
+    resolved = VariableResolver.resolve_elements(socket.assigns.canvas.elements, bindings)
+    assign(socket, resolved_elements: resolved)
+  end
+
+  defp refresh_variable_options(socket) do
+    assign(socket, variable_options: build_variable_options(socket.assigns.canvas.variables))
+  end
+
+  defp build_variable_options(variables) do
+    Map.new(variables, fn {name, definition} ->
+      case definition["type"] do
+        "host" -> {name, StatusManager.list_hosts()}
+        "custom" -> {name, definition["options"] || []}
+        _ -> {name, []}
+      end
+    end)
   end
 
   defp schedule_autosave(socket) do
@@ -1310,8 +1363,12 @@ defmodule TimelessUIWeb.CanvasLive do
     require_edit(socket, fn ->
       history = History.undo(socket.assigns.history)
 
-      {:noreply,
-       assign(socket, history: history, canvas: history.present, selected_ids: MapSet.new())}
+      socket =
+        assign(socket, history: history, canvas: history.present, selected_ids: MapSet.new())
+        |> resolve_and_assign()
+        |> refresh_variable_options()
+
+      {:noreply, socket}
     end)
   end
 
@@ -1319,8 +1376,12 @@ defmodule TimelessUIWeb.CanvasLive do
     require_edit(socket, fn ->
       history = History.redo(socket.assigns.history)
 
-      {:noreply,
-       assign(socket, history: history, canvas: history.present, selected_ids: MapSet.new())}
+      socket =
+        assign(socket, history: history, canvas: history.present, selected_ids: MapSet.new())
+        |> resolve_and_assign()
+        |> refresh_variable_options()
+
+      {:noreply, socket}
     end)
   end
 
@@ -1388,7 +1449,8 @@ defmodule TimelessUIWeb.CanvasLive do
       source = socket.assigns.canvas.elements[source_id]
 
       if source do
-        host = source.meta["host"] || source.meta["service_name"]
+        # Inherit $host binding from source element's raw meta
+        host_ref = source.meta["host"] || source.meta["service_name"]
         defaults = Element.defaults_for(:graph)
 
         # Count existing graphs below this element to stack them
@@ -1411,21 +1473,75 @@ defmodule TimelessUIWeb.CanvasLive do
             height: defaults.height,
             color: defaults.color,
             label: metric_name,
-            meta: %{"host" => host, "metric_name" => metric_name}
+            meta: %{"host" => host_ref, "metric_name" => metric_name}
           })
 
-        StatusManager.register_elements([el])
+        # Resolve for registration
+        bindings = VariableResolver.bindings(canvas.variables)
+        resolved_el = VariableResolver.resolve_element(el, bindings)
+        StatusManager.register_elements([resolved_el])
 
         socket =
           socket
           |> push_canvas(canvas)
-          |> backfill_graph(el)
+          |> backfill_graph(resolved_el)
           |> schedule_autosave()
 
         {:noreply, socket}
       else
         {:noreply, socket}
       end
+    end)
+  end
+
+  # --- Variable event handlers ---
+
+  def handle_event("var:change", params, socket) do
+    require_edit(socket, fn ->
+      # The select name is the variable name, its value is the new selection
+      {var_name, new_value} =
+        socket.assigns.canvas.variables
+        |> Map.keys()
+        |> Enum.find_value(fn name ->
+          case params[name] do
+            nil -> nil
+            val -> {name, val}
+          end
+        end)
+
+      if var_name do
+        canvas = socket.assigns.canvas
+        var_def = Map.put(canvas.variables[var_name], "current", new_value)
+        variables = Map.put(canvas.variables, var_name, var_def)
+        canvas = %{canvas | variables: variables}
+
+        socket =
+          socket
+          |> push_canvas(canvas)
+          |> register_elements()
+          |> fill_graph_data_at(socket.assigns.timeline_time || DateTime.utc_now())
+          |> schedule_autosave()
+
+        {:noreply, socket}
+      else
+        {:noreply, socket}
+      end
+    end)
+  end
+
+  def handle_event("var:remove", %{"name" => name}, socket) do
+    require_edit(socket, fn ->
+      canvas = socket.assigns.canvas
+      variables = Map.delete(canvas.variables, name)
+      canvas = %{canvas | variables: variables}
+
+      socket =
+        socket
+        |> push_canvas(canvas)
+        |> refresh_variable_options()
+        |> schedule_autosave()
+
+      {:noreply, socket}
     end)
   end
 
@@ -1530,6 +1646,8 @@ defmodule TimelessUIWeb.CanvasLive do
 
             socket =
               assign(socket, history: history, canvas: canvas, selected_ids: MapSet.new())
+              |> resolve_and_assign()
+              |> refresh_variable_options()
               |> register_elements()
 
             {:noreply, socket}
@@ -2086,24 +2204,41 @@ defmodule TimelessUIWeb.CanvasLive do
   defp place_host_element(socket, host, x, y) do
     type = socket.assigns.place_host_type
     defaults = Element.defaults_for(type)
+    canvas = socket.assigns.canvas
+
+    # Auto-create or update the $host variable
+    variables =
+      case canvas.variables["host"] do
+        nil ->
+          Map.put(canvas.variables, "host", %{"type" => "host", "current" => host})
+
+        existing ->
+          Map.put(canvas.variables, "host", Map.put(existing, "current", host))
+      end
+
+    canvas = %{canvas | variables: variables}
 
     {canvas, el} =
-      Canvas.add_element(socket.assigns.canvas, %{
+      Canvas.add_element(canvas, %{
         type: type,
         x: x,
         y: y,
         color: defaults.color,
         width: defaults.width,
         height: defaults.height,
-        label: host,
-        meta: %{"host" => host}
+        label: "$host",
+        meta: %{"host" => "$host"}
       })
 
-    StatusManager.register_elements([el])
+    # Resolve the newly added element for registration
+    bindings = VariableResolver.bindings(canvas.variables)
+    resolved_el = VariableResolver.resolve_element(el, bindings)
+    StatusManager.register_elements([resolved_el])
 
     socket =
       socket
       |> push_canvas(canvas)
+      |> refresh_variable_options()
       |> assign(selected_ids: MapSet.new([el.id]))
       |> fetch_series_for_selected(el.id)
       |> schedule_autosave()
@@ -2147,7 +2282,8 @@ defmodule TimelessUIWeb.CanvasLive do
   end
 
   defp fetch_series_for_selected(socket, element_id) do
-    case Map.get(socket.assigns.canvas.elements, element_id) do
+    # Use resolved_elements so $host is replaced with actual value for discovery
+    case Map.get(socket.assigns.resolved_elements, element_id) do
       %Element{meta: meta} when is_map(meta) ->
         host = meta["host"] || meta["service_name"]
 

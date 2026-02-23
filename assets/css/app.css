@@ -404,6 +404,70 @@ body:has(.canvas-container) {
   color: #eab308;
 }
 
+/* Variable Bar */
+.canvas-var-bar {
+  position: absolute;
+  top: 52px;
+  left: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--toolbar-bg);
+  border: 1px solid var(--toolbar-border);
+  border-radius: 8px;
+  backdrop-filter: blur(12px);
+  z-index: 10;
+}
+
+.canvas-var-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.canvas-var-label {
+  font-size: 12px;
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.canvas-var-select {
+  padding: 3px 6px;
+  font-size: 12px;
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--toolbar-border);
+  border-radius: 4px;
+  cursor: pointer;
+  outline: none;
+  min-width: 120px;
+}
+
+.canvas-var-select:focus {
+  border-color: var(--accent);
+}
+
+.canvas-var-remove {
+  padding: 0 4px;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity 0.15s, color 0.15s;
+}
+
+.canvas-var-remove:hover {
+  opacity: 1;
+  color: var(--danger);
+}
+
 /* Share overlay */
 .canvas-share-overlay {
   position: absolute;
