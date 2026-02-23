@@ -5,6 +5,7 @@ defmodule TimelessUIWeb.CanvasComponents do
   use Phoenix.Component
 
   alias TimelessUI.Canvas.Element
+  alias TimelessUI.MetricFormatter
 
   attr :element, Element, required: true
   attr :selected, :boolean, default: false
@@ -13,6 +14,7 @@ defmodule TimelessUIWeb.CanvasComponents do
   attr :stream_entries, :list, default: []
   attr :expanded_graph_id, :string, default: nil
   attr :expanded_graph_data, :list, default: []
+  attr :metric_units, :map, default: %{}
 
   def canvas_element(assigns) do
     is_expanded = assigns.element.type == :graph and assigns.expanded_graph_id == assigns.element.id
@@ -47,6 +49,7 @@ defmodule TimelessUIWeb.CanvasComponents do
         expanded_graph_data={@expanded_graph_data}
         render_w={@render_w}
         render_h={@render_h}
+        metric_units={@metric_units}
       />
       <.element_icon element={@element} />
       <text
@@ -293,6 +296,7 @@ defmodule TimelessUIWeb.CanvasComponents do
 
   defp element_body(%{element: %{type: :graph}, is_expanded: true} = assigns) do
     metric_name = Map.get(assigns.element.meta, "metric_name", "metric")
+    unit = Map.get(assigns.metric_units, assigns.element.id)
 
     graph_title =
       case assigns.element.label do
@@ -364,7 +368,7 @@ defmodule TimelessUIWeb.CanvasComponents do
           end)
 
         {_ts, cur} = List.last(points)
-        {padded_min, padded_max, ticks, polyline_str, area_str, tooltip, format_value(cur)}
+        {padded_min, padded_max, ticks, polyline_str, area_str, tooltip, MetricFormatter.format(cur / 1.0, unit)}
       else
         {0, 1, [0.0, 0.25, 0.5, 0.75, 1.0], "", "", [], nil}
       end
@@ -385,6 +389,7 @@ defmodule TimelessUIWeb.CanvasComponents do
       assign(assigns,
         graph_title: graph_title,
         metric_name: metric_name,
+        unit: unit,
         plot_x: plot_x,
         plot_y: plot_y,
         plot_w: plot_w,
@@ -438,7 +443,7 @@ defmodule TimelessUIWeb.CanvasComponents do
         font-size="8"
         font-family="monospace"
       >
-        {format_value(tick)}
+        {MetricFormatter.format(tick / 1.0, @unit)}
       </text>
 
       <%!-- X-axis labels --%>
@@ -1059,21 +1064,6 @@ defmodule TimelessUIWeb.CanvasComponents do
 
   # --- Graph detail helpers ---
 
-  defp format_value(val) when is_float(val) or is_integer(val) do
-    abs_val = abs(val)
-
-    cond do
-      abs_val >= 1_000_000_000 -> "#{Float.round(val / 1_000_000_000, 1)}G"
-      abs_val >= 1_000_000 -> "#{Float.round(val / 1_000_000, 1)}M"
-      abs_val >= 10_000 -> "#{Float.round(val / 1_000, 1)}K"
-      abs_val >= 100 -> "#{round(val)}"
-      abs_val >= 1 -> "#{Float.round(val / 1, 2)}"
-      abs_val == 0 -> "0"
-      true -> "#{Float.round(val / 1, 3)}"
-    end
-  end
-
-  defp format_value(_), do: "---"
 
   defp format_time(ts) do
     ms =

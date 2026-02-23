@@ -66,5 +66,9 @@ defmodule TimelessUI.DataSource do
 
   @callback list_hosts(state :: term()) :: [String.t()]
 
-  @optional_callbacks [event_density: 4, list_series_for_host: 2, list_hosts: 1]
+  @callback metric_metadata(state :: term(), metric_name :: String.t()) ::
+              {:ok, %{type: atom(), unit: String.t() | nil, description: String.t() | nil}}
+              | {:ok, nil}
+
+  @optional_callbacks [event_density: 4, list_series_for_host: 2, list_hosts: 1, metric_metadata: 2]
 end

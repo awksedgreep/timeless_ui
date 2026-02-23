@@ -101,6 +101,14 @@ defmodule TimelessUI.DataSource.Manager do
     GenServer.call(server, :list_hosts, 10_000)
   end
 
+  @doc """
+  Get metadata (type, unit, description) for a metric name.
+  Returns `{:ok, %{type: _, unit: _, description: _}}` or `{:ok, nil}`.
+  """
+  def metric_metadata(metric_name, server \\ __MODULE__) do
+    GenServer.call(server, {:metric_metadata, metric_name}, 10_000)
+  end
+
   # --- Server callbacks ---
 
   @impl true
@@ -203,6 +211,17 @@ defmodule TimelessUI.DataSource.Manager do
         state.module.list_hosts(state.ds_state)
       else
         []
+      end
+
+    {:reply, result, state}
+  end
+
+  def handle_call({:metric_metadata, metric_name}, _from, state) do
+    result =
+      if function_exported?(state.module, :metric_metadata, 2) do
+        state.module.metric_metadata(state.ds_state, metric_name)
+      else
+        {:ok, nil}
       end
 
     {:reply, result, state}

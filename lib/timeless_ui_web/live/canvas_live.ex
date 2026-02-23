@@ -7,6 +7,7 @@ defmodule TimelessUIWeb.CanvasLive do
   alias TimelessUI.Canvases.Policy
   alias TimelessUI.DataSource.Manager, as: StatusManager
   alias TimelessUI.StreamManager
+  alias TimelessUI.MetricFormatter
   import TimelessUIWeb.CanvasComponents
 
   @type_labels %{
@@ -99,11 +100,13 @@ defmodule TimelessUIWeb.CanvasLive do
          discovered_hosts: [],
          host_filter: "",
          stream_popover: nil,
+         metric_units: %{},
          resolved_elements: resolved_elements,
          variable_options: build_variable_options(canvas.variables)
        )
        |> refresh_data_range()
        |> refresh_discovered_hosts()
+       |> fetch_metric_units()
        |> fill_graph_data_at(DateTime.utc_now())
        |> push_density_update()}
     else
@@ -385,10 +388,11 @@ defmodule TimelessUIWeb.CanvasLive do
           element={element}
           selected={element.id in @selected_ids}
           graph_points={graph_points_for(element, @graph_data)}
-          graph_value={graph_value_for(element, @graph_data)}
+          graph_value={graph_value_for(element, @graph_data, @metric_units)}
           stream_entries={stream_entries_for(element, @stream_data)}
           expanded_graph_id={@expanded_graph_id}
           expanded_graph_data={@expanded_graph_data}
+          metric_units={@metric_units}
         />
 
         <.stream_popover :if={@stream_popover} popover={@stream_popover} />
@@ -1484,6 +1488,7 @@ defmodule TimelessUIWeb.CanvasLive do
         socket =
           socket
           |> push_canvas(canvas)
+          |> fetch_metric_units()
           |> backfill_graph(resolved_el)
           |> schedule_autosave()
 
@@ -1519,6 +1524,7 @@ defmodule TimelessUIWeb.CanvasLive do
           socket
           |> push_canvas(canvas)
           |> register_elements()
+          |> fetch_metric_units()
           |> fill_graph_data_at(socket.assigns.timeline_time || DateTime.utc_now())
           |> schedule_autosave()
 
@@ -1852,14 +1858,18 @@ defmodule TimelessUIWeb.CanvasLive do
     end
   end
 
-  defp graph_value_for(%{type: :graph} = element, graph_data) do
+  defp graph_value_for(%{type: :graph} = element, graph_data, metric_units) do
     case Map.get(graph_data, element.id) do
-      [{_ts, val} | _] -> :erlang.float_to_binary(val / 1.0, decimals: 1)
-      _ -> nil
+      [{_ts, val} | _] ->
+        unit = Map.get(metric_units, element.id)
+        MetricFormatter.format(val / 1.0, unit)
+
+      _ ->
+        nil
     end
   end
 
-  defp graph_value_for(_element, _graph_data), do: nil
+  defp graph_value_for(_element, _graph_data, _metric_units), do: nil
 
   defp backfill_graph(socket, %{type: :graph} = el) do
     time = socket.assigns.timeline_time || DateTime.utc_now()
@@ -2193,6 +2203,26 @@ defmodule TimelessUIWeb.CanvasLive do
       width: exp_w + padding * 2,
       height: exp_h + padding * 2
     })
+  end
+
+  defp fetch_metric_units(socket) do
+    units =
+      socket.assigns.resolved_elements
+      |> Enum.filter(fn {_id, el} -> el.type == :graph end)
+      |> Enum.reduce(%{}, fn {id, el}, acc ->
+        metric_name = Map.get(el.meta || %{}, "metric_name")
+
+        if metric_name do
+          case StatusManager.metric_metadata(metric_name) do
+            {:ok, %{unit: unit}} when not is_nil(unit) -> Map.put(acc, id, unit)
+            _ -> acc
+          end
+        else
+          acc
+        end
+      end)
+
+    assign(socket, metric_units: units)
   end
 
   defp refresh_discovered_hosts(socket) do
