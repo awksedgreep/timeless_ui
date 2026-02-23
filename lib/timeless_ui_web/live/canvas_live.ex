@@ -392,6 +392,8 @@ defmodule TimelessUIWeb.CanvasLive do
           class="canvas-grid"
         />
 
+        <.shortcut_legend view_box={@canvas.view_box} />
+
         <.canvas_connection
           :for={{_id, conn} <- @canvas.connections}
           connection={conn}
@@ -440,6 +442,49 @@ defmodule TimelessUIWeb.CanvasLive do
         </button>
       </div>
     </div>
+    """
+  end
+
+  @shortcuts [
+    {"Ctrl+Z", "Undo"},
+    {"Ctrl+Shift+Z", "Redo"},
+    {"Ctrl+C / X / V", "Copy / Cut / Paste"},
+    {"Ctrl+A", "Select all"},
+    {"Ctrl+S", "Save"},
+    {"Backspace", "Delete"},
+    {"Arrows", "Nudge"},
+    {"Shift+Arrow", "Nudge 1px"},
+    {"+ / -", "Zoom"},
+    {"Space+Drag", "Pan"},
+    {"Alt+Drag", "Pan"},
+    {"Double-click", "Expand graph"}
+  ]
+
+  defp shortcut_legend(assigns) do
+    vb = assigns.view_box
+    # Position in top-right of viewbox
+    base_x = vb.min_x + vb.width - 10
+    base_y = vb.min_y + 14
+    # Scale font with zoom so it stays readable
+    scale = vb.width / 1200
+
+    assigns = assign(assigns, base_x: base_x, base_y: base_y, scale: scale, shortcuts: @shortcuts)
+
+    ~H"""
+    <g pointer-events="none" opacity="0.18">
+      <text
+        :for={{shortcut, i} <- Enum.with_index(@shortcuts)}
+        x={@base_x}
+        y={@base_y + i * 12 * @scale}
+        text-anchor="end"
+        fill="#94a3b8"
+        font-size={8 * @scale}
+        font-family="monospace"
+      >
+        <tspan fill="#cbd5e1">{elem(shortcut, 0)}</tspan>
+        <tspan dx={4 * @scale} fill="#64748b">{elem(shortcut, 1)}</tspan>
+      </text>
+    </g>
     """
   end
 
