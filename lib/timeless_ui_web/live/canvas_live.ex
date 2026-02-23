@@ -475,14 +475,14 @@ defmodule TimelessUIWeb.CanvasLive do
       <text
         :for={{shortcut, i} <- Enum.with_index(@shortcuts)}
         x={@base_x}
-        y={@base_y + i * 12 * @scale}
+        y={@base_y + i * 16 * @scale}
         text-anchor="end"
         fill="#94a3b8"
-        font-size={8 * @scale}
+        font-size={11 * @scale}
         font-family="monospace"
       >
         <tspan fill="#cbd5e1">{elem(shortcut, 0)}</tspan>
-        <tspan dx={4 * @scale} fill="#64748b">{elem(shortcut, 1)}</tspan>
+        <tspan dx={5 * @scale} fill="#64748b">{elem(shortcut, 1)}</tspan>
       </text>
     </g>
     """
