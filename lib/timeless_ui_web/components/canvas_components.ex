@@ -506,13 +506,16 @@ defmodule TimelessUIWeb.CanvasComponents do
 
   defp element_body(%{element: %{type: :graph}} = assigns) do
     metric_name = Map.get(assigns.element.meta, "metric_name", "metric")
+    unit = Map.get(assigns.metric_units, assigns.element.id)
 
-    graph_title =
+    base_title =
       case assigns.element.label do
         nil -> metric_name
         "" -> metric_name
         label -> "#{label} | #{metric_name}"
       end
+
+    graph_title = if unit, do: "#{base_title} (#{unit})", else: base_title
 
     assigns = assign(assigns, graph_title: graph_title)
 

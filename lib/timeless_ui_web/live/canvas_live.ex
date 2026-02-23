@@ -190,6 +190,7 @@ defmodule TimelessUIWeb.CanvasLive do
           phx-click="toggle_mode"
           phx-value-mode="select"
           class={"canvas-toolbar__btn#{if @mode == :select, do: " canvas-toolbar__btn--active", else: ""}"}
+          title="Select (Esc to deselect)"
         >
           Select
         </button>
@@ -198,6 +199,7 @@ defmodule TimelessUIWeb.CanvasLive do
           phx-value-mode="place"
           class={"canvas-toolbar__btn#{if @mode == :place, do: " canvas-toolbar__btn--active", else: ""}"}
           disabled={!@can_edit}
+          title="Place elements"
         >
           Place
         </button>
@@ -206,6 +208,7 @@ defmodule TimelessUIWeb.CanvasLive do
           phx-value-mode="connect"
           class={"canvas-toolbar__btn#{if @mode == :connect, do: " canvas-toolbar__btn--active", else: ""}"}
           disabled={!@can_edit}
+          title="Connect elements"
         >
           Connect
         </button>
@@ -251,12 +254,14 @@ defmodule TimelessUIWeb.CanvasLive do
         <button
           phx-click="toggle_grid"
           class={"canvas-toolbar__btn#{if @canvas.grid_visible, do: " canvas-toolbar__btn--active", else: ""}"}
+          title="Toggle grid"
         >
           Grid
         </button>
         <button
           phx-click="toggle_snap"
           class={"canvas-toolbar__btn#{if @canvas.snap_to_grid, do: " canvas-toolbar__btn--active", else: ""}"}
+          title="Snap to grid"
         >
           Snap
         </button>
@@ -265,6 +270,7 @@ defmodule TimelessUIWeb.CanvasLive do
           phx-click="canvas:undo"
           class="canvas-toolbar__btn"
           disabled={!@can_edit || !History.can_undo?(@history)}
+          title="Undo (Ctrl+Z)"
         >
           Undo
         </button>
@@ -272,14 +278,24 @@ defmodule TimelessUIWeb.CanvasLive do
           phx-click="canvas:redo"
           class="canvas-toolbar__btn"
           disabled={!@can_edit || !History.can_redo?(@history)}
+          title="Redo (Ctrl+Shift+Z)"
         >
           Redo
         </button>
         <span class="canvas-toolbar__sep"></span>
         <button
+          phx-click="fit_to_content"
+          class="canvas-toolbar__btn"
+          disabled={map_size(@canvas.elements) == 0}
+          title="Fit all elements in view"
+        >
+          Fit
+        </button>
+        <button
           phx-click="send_to_back"
           class="canvas-toolbar__btn"
           disabled={!@can_edit || MapSet.size(@selected_ids) == 0}
+          title="Send to back"
         >
           Back
         </button>
@@ -287,6 +303,7 @@ defmodule TimelessUIWeb.CanvasLive do
           phx-click="bring_to_front"
           class="canvas-toolbar__btn"
           disabled={!@can_edit || MapSet.size(@selected_ids) == 0}
+          title="Bring to front"
         >
           Front
         </button>
@@ -294,6 +311,7 @@ defmodule TimelessUIWeb.CanvasLive do
           phx-click="delete_selected"
           class="canvas-toolbar__btn canvas-toolbar__btn--danger"
           disabled={!@can_edit || MapSet.size(@selected_ids) == 0}
+          title="Delete (Backspace)"
         >
           Delete
         </button>
@@ -927,6 +945,58 @@ defmodule TimelessUIWeb.CanvasLive do
       })
 
     {:noreply, socket}
+  end
+
+  def handle_event("fit_to_content", _params, socket) do
+    elements = Map.values(socket.assigns.canvas.elements)
+
+    if elements == [] do
+      {:noreply, socket}
+    else
+      padding = 60
+
+      min_x = elements |> Enum.map(& &1.x) |> Enum.min()
+      min_y = elements |> Enum.map(& &1.y) |> Enum.min()
+      max_x = elements |> Enum.map(&(&1.x + &1.width)) |> Enum.max()
+      max_y = elements |> Enum.map(&(&1.y + &1.height)) |> Enum.max()
+
+      content_w = max_x - min_x + padding * 2
+      content_h = max_y - min_y + padding * 2
+
+      # Maintain aspect ratio of current viewbox
+      vb = socket.assigns.canvas.view_box
+      aspect = vb.width / vb.height
+      {fit_w, fit_h} =
+        if content_w / content_h > aspect do
+          {content_w, content_w / aspect}
+        else
+          {content_h * aspect, content_h}
+        end
+
+      center_x = (min_x + max_x) / 2
+      center_y = (min_y + max_y) / 2
+
+      new_vb = %ViewBox{
+        min_x: center_x - fit_w / 2,
+        min_y: center_y - fit_h / 2,
+        width: fit_w,
+        height: fit_h
+      }
+
+      canvas = %{socket.assigns.canvas | view_box: new_vb}
+
+      socket =
+        socket
+        |> update_canvas(canvas)
+        |> push_event("set-viewbox", %{
+          x: new_vb.min_x,
+          y: new_vb.min_y,
+          width: new_vb.width,
+          height: new_vb.height
+        })
+
+      {:noreply, socket}
+    end
   end
 
   def handle_event("canvas:click", %{"x" => x, "y" => y}, socket) do
