@@ -552,7 +552,7 @@ defmodule TimelessUIWeb.CanvasComponents do
     </text>
     <text
       :if={@graph_value}
-      x={@element.x + @element.width - 4}
+      x={@element.x + @element.width - 18}
       y={@element.y + 10}
       text-anchor="end"
       class="canvas-graph__title"
