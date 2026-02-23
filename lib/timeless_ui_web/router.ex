@@ -55,6 +55,7 @@ defmodule TimelessUIWeb.Router do
       on_mount: [{TimelessUIWeb.UserAuth, :require_authenticated}] do
       live "/canvases", CanvasListLive, :index
       live "/canvas/:id", CanvasLive, :show
+      live "/scrape-targets", ScrapeTargetLive, :index
       live "/users/settings", UserLive.Settings, :edit
       live "/users/settings/confirm-email/:token", UserLive.Settings, :confirm_email
     end
