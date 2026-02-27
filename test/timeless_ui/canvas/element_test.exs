@@ -157,8 +157,8 @@ defmodule TimelessUI.Canvas.ElementTest do
   describe "graph element type" do
     test "has compact sparkline dimensions" do
       el = Element.new(%{id: "1", type: :graph})
-      assert el.width == 120.0
-      assert el.height == 60.0
+      assert el.width == 220.0
+      assert el.height == 100.0
       assert el.color == "#0ea5e9"
     end
 

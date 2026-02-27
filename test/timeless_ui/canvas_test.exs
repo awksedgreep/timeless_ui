@@ -77,11 +77,11 @@ defmodule TimelessUI.CanvasTest do
       canvas = Canvas.new()
       {canvas, el} = Canvas.add_element(canvas)
 
-      canvas = Canvas.resize_element(canvas, el.id, 300.0, 150.0)
+      canvas = Canvas.resize_element(canvas, el.id, 300.0, 160.0)
       resized = canvas.elements[el.id]
 
       assert resized.width == 300.0
-      assert resized.height == 150.0
+      assert resized.height == 160.0
     end
   end
 
