@@ -65,6 +65,14 @@ config :logger, :default_formatter,
 # Configures Swoosh for email
 config :timeless_ui, TimelessUI.Mailer, adapter: Swoosh.Adapters.Local
 
+# Poller configuration
+config :timeless_ui, :poller,
+  enabled: false,
+  max_concurrency: 50,
+  icmp_timeout_ms: 1_000,
+  icmp_count: 1,
+  metrics_store: :timeless_metrics
+
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason
 

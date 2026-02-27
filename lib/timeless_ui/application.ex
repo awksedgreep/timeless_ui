@@ -16,6 +16,7 @@ defmodule TimelessUI.Application do
       {Phoenix.PubSub, name: TimelessUI.PubSub},
       TimelessUI.DataSource.Manager,
       TimelessUI.StreamManager,
+      {TimelessUI.Poller.Supervisor, Application.get_env(:timeless_ui, :poller, enabled: false)},
       TimelessUIWeb.Endpoint
     ]
 
