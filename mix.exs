@@ -67,7 +67,9 @@ defmodule TimelessUI.MixProject do
       {:bandit, "~> 1.5"},
       {:opentelemetry_phoenix, "~> 2.0"},
       {:opentelemetry_bandit, "~> 0.3.0"},
-      {:opentelemetry_ecto, "~> 1.2"}
+      {:opentelemetry_ecto, "~> 1.2"},
+      {:crontab, "~> 1.1"},
+      {:raw_ping, "~> 0.2.0"}
     ]
   end
 

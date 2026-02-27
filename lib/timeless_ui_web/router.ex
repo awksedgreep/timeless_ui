@@ -56,6 +56,10 @@ defmodule TimelessUIWeb.Router do
       live "/canvases", CanvasListLive, :index
       live "/canvas/:id", CanvasLive, :show
       live "/scrape-targets", ScrapeTargetLive, :index
+      live "/poller", PollerLive.Dashboard, :index
+      live "/poller/hosts", PollerLive.Hosts, :index
+      live "/poller/requests", PollerLive.Requests, :index
+      live "/poller/schedules", PollerLive.Schedules, :index
       live "/users/settings", UserLive.Settings, :edit
       live "/users/settings/confirm-email/:token", UserLive.Settings, :confirm_email
     end
