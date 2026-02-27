@@ -45,7 +45,8 @@ defmodule TimelessUI.Canvas.Element do
     log_stream: %{width: 280.0, height: 80.0, color: "#10b981"},
     trace_stream: %{width: 280.0, height: 80.0, color: "#8b5cf6"},
     canvas: %{width: 140.0, height: 100.0, color: "#818cf8"},
-    text: %{width: 200.0, height: 40.0, color: "#e2e8f0"}
+    text: %{width: 200.0, height: 40.0, color: "#e2e8f0"},
+    text_series: %{width: 200.0, height: 60.0, color: "#14b8a6"}
   }
 
   @doc """
@@ -87,7 +88,8 @@ defmodule TimelessUI.Canvas.Element do
     log_stream: ~w(level metadata_filter),
     trace_stream: ~w(service name kind),
     canvas: ~w(canvas_id),
-    text: ~w(font_size)
+    text: ~w(font_size),
+    text_series: ~w(host metric_name)
   }
 
   @doc """

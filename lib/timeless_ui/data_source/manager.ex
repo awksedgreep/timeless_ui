@@ -109,6 +109,14 @@ defmodule TimelessUI.DataSource.Manager do
     GenServer.call(server, {:metric_metadata, metric_name}, 10_000)
   end
 
+  @doc """
+  Return a text metric value for a given element at a specific time.
+  Delegates to the data source's `text_metric_at/4`.
+  """
+  def text_metric_at(element_id, metric_name, time, server \\ __MODULE__) do
+    GenServer.call(server, {:text_metric_at, element_id, metric_name, time})
+  end
+
   # --- Server callbacks ---
 
   @impl true
@@ -227,6 +235,23 @@ defmodule TimelessUI.DataSource.Manager do
     {:reply, result, state}
   end
 
+  def handle_call({:text_metric_at, element_id, metric_name, time}, _from, state) do
+    result =
+      case Map.get(state.elements, element_id) do
+        nil ->
+          :no_data
+
+        element ->
+          if function_exported?(state.module, :text_metric_at, 4) do
+            state.module.text_metric_at(state.ds_state, element, metric_name, time)
+          else
+            :no_data
+          end
+      end
+
+    {:reply, result, state}
+  end
+
   @impl true
   def handle_cast({:unregister_element, element_id}, state) do
     case Map.pop(state.elements, element_id) do
@@ -277,6 +302,10 @@ defmodule TimelessUI.DataSource.Manager do
         poll_metric(state, element_id, element)
       end
 
+      if element.type == :text_series do
+        poll_text_metric(state, element_id, element)
+      end
+
       acc
     end)
   end
@@ -296,6 +325,26 @@ defmodule TimelessUI.DataSource.Manager do
 
       :no_data ->
         :ok
+    end
+  end
+
+  defp poll_text_metric(state, element_id, element) do
+    metric_name = Map.get(element.meta, "metric_name", "default")
+
+    if function_exported?(state.module, :text_metric, 3) do
+      case state.module.text_metric(state.ds_state, element, metric_name) do
+        {:ok, value} ->
+          timestamp = System.system_time(:millisecond)
+
+          Phoenix.PubSub.broadcast(
+            TimelessUI.PubSub,
+            @metric_topic,
+            {:element_text_metric, element_id, metric_name, value, timestamp}
+          )
+
+        :no_data ->
+          :ok
+      end
     end
   end
 

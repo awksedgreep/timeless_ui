@@ -14,6 +14,8 @@ defmodule TimelessUI.Poller.Supervisor do
     if enabled do
       Logger.info("Poller supervisor starting (enabled: true)")
 
+      TimelessUI.Poller.SnmpKitStarter.ensure_started()
+
       children = [
         {Task.Supervisor, name: TimelessUI.Poller.TaskSupervisor},
         {TimelessUI.Poller.Dispatcher, opts},

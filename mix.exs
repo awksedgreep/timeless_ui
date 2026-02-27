@@ -4,7 +4,7 @@ defmodule TimelessUI.MixProject do
   def project do
     [
       app: :timeless_ui,
-      version: "0.4.0",
+      version: "0.5.0",
       elixir: "~> 1.15",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
@@ -69,7 +69,9 @@ defmodule TimelessUI.MixProject do
       {:opentelemetry_bandit, "~> 0.3.0"},
       {:opentelemetry_ecto, "~> 1.2"},
       {:crontab, "~> 1.1"},
-      {:raw_ping, "~> 0.2.0"}
+      {:raw_ping, "~> 0.2.0"},
+      {:req, "~> 0.5"},
+      {:snmpkit, "~> 1.3"}
     ]
   end
 

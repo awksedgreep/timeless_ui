@@ -15,6 +15,7 @@ defmodule TimelessUIWeb.CanvasComponents do
   attr :expanded_graph_id, :string, default: nil
   attr :expanded_graph_data, :list, default: []
   attr :metric_units, :map, default: %{}
+  attr :text_value, :string, default: nil
 
   def canvas_element(assigns) do
     is_expanded = assigns.element.type == :graph and assigns.expanded_graph_id == assigns.element.id
@@ -50,10 +51,11 @@ defmodule TimelessUIWeb.CanvasComponents do
         render_w={@render_w}
         render_h={@render_h}
         metric_units={@metric_units}
+        text_value={@text_value}
       />
       <.element_icon element={@element} />
       <text
-        :if={@element.type not in [:graph, :log_stream, :trace_stream, :text]}
+        :if={@element.type not in [:graph, :log_stream, :trace_stream, :text, :text_series]}
         x={@element.x + @render_w / 2}
         y={@element.y + @render_h - 16}
         text-anchor="middle"
@@ -567,6 +569,49 @@ defmodule TimelessUIWeb.CanvasComponents do
     """
   end
 
+  defp element_body(%{element: %{type: :text_series}} = assigns) do
+    metric_name = Map.get(assigns.element.meta, "metric_name", "metric")
+
+    title =
+      case assigns.element.label do
+        nil -> metric_name
+        "" -> metric_name
+        label -> "#{label} | #{metric_name}"
+      end
+
+    display_value = assigns.text_value || "\u2014"
+    assigns = assign(assigns, title: title, display_value: display_value)
+
+    ~H"""
+    <rect
+      x={@element.x} y={@element.y}
+      width={@element.width} height={@element.height}
+      rx="4" ry="4"
+      fill="#0f172a"
+      class="canvas-element__body"
+    />
+    <clipPath id={"text-series-clip-#{@element.id}"}>
+      <rect x={@element.x} y={@element.y} width={@element.width} height={@element.height} />
+    </clipPath>
+    <text
+      x={@element.x + 4} y={@element.y + 10}
+      class="canvas-graph__title" fill="#94a3b8" font-size="8"
+      clip-path={"url(#text-series-clip-#{@element.id})"}
+    >
+      {@title}
+    </text>
+    <text
+      x={@element.x + @element.width / 2}
+      y={@element.y + @element.height / 2 + 4}
+      text-anchor="middle" dominant-baseline="central"
+      fill={@element.color} font-size="12"
+      clip-path={"url(#text-series-clip-#{@element.id})"}
+    >
+      {@display_value}
+    </text>
+    """
+  end
+
   defp element_body(%{element: %{type: :text}} = assigns) do
     font_size = Map.get(assigns.element.meta, "font_size", "16")
 
@@ -653,6 +698,7 @@ defmodule TimelessUIWeb.CanvasComponents do
   defp element_icon(%{element: %{type: :database}} = assigns), do: ~H""
   defp element_icon(%{element: %{type: :graph}} = assigns), do: ~H""
   defp element_icon(%{element: %{type: :text}} = assigns), do: ~H""
+  defp element_icon(%{element: %{type: :text_series}} = assigns), do: ~H""
 
   defp element_icon(%{element: %{type: :log_stream}} = assigns) do
     assigns =

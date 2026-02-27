@@ -48,7 +48,7 @@ defmodule TimelessUI.Poller.Collectors.IcmpCollector do
         {:ok, metrics}
 
       {:error, reason} ->
-        Logger.warning("ICMP ping failed for #{host.name} (#{ip}): #{inspect(reason)}")
+        Logger.debug("ICMP ping failed for #{host.name} (#{ip}): #{inspect(reason)}")
         labels = build_labels(host)
 
         metrics = [

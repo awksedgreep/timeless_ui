@@ -11,7 +11,8 @@ defmodule TimelessUI.Poller.Collector do
           host: String.t(),
           type: String.t(),
           labels: map(),
-          val: number(),
+          val: number() | String.t(),
+          val_type: :numeric | :text,
           ts: integer()
         }
 

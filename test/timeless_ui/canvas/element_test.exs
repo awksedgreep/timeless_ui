@@ -75,7 +75,8 @@ defmodule TimelessUI.Canvas.ElementTest do
       assert :trace_stream in types
       assert :canvas in types
       assert :text in types
-      assert length(types) == 14
+      assert :text_series in types
+      assert length(types) == 15
     end
   end
 

@@ -9,7 +9,14 @@ defmodule TimelessUI.Poller.Dispatcher do
 
   require Logger
 
-  alias TimelessUI.Poller.{MetricsWriter, Collectors.IcmpCollector}
+  alias TimelessUI.Poller.MetricsWriter
+
+  alias TimelessUI.Poller.Collectors.{
+    IcmpCollector,
+    PrometheusCollector,
+    MikrotikRestCollector,
+    SnmpCollector
+  }
 
   defstruct queue: :queue.new(),
             running: 0,
@@ -106,9 +113,19 @@ defmodule TimelessUI.Poller.Dispatcher do
     })
 
     collector = collector_for_type(request.type)
+    run_collector(collector, host, request)
+  end
+
+  defp run_collector(nil, host, request) do
+    Logger.warning(
+      "Skipping job #{request.name} for #{host.name}: no collector for type #{request.type}"
+    )
+  end
+
+  defp run_collector(collector, host, request) do
     config = Application.get_env(:timeless_ui, :poller, [])
 
-    case apply(collector, :execute, [host, request, request.config, config]) do
+    case collector.execute(host, request, request.config || %{}, config) do
       {:ok, metrics} ->
         MetricsWriter.write_metrics(metrics)
 
@@ -119,7 +136,7 @@ defmodule TimelessUI.Poller.Dispatcher do
         })
 
       {:error, reason} ->
-        Logger.warning("Poller job failed: #{host.name}/#{request.name}: #{inspect(reason)}")
+        Logger.debug("Poller job failed: #{host.name}/#{request.name}: #{inspect(reason)}")
 
         :telemetry.execute([:poller, :job, :error], %{count: 1}, %{
           host: host.name,
@@ -131,9 +148,12 @@ defmodule TimelessUI.Poller.Dispatcher do
   end
 
   defp collector_for_type("icmp_ping"), do: IcmpCollector
+  defp collector_for_type("prometheus"), do: PrometheusCollector
+  defp collector_for_type("mikrotik_rest"), do: MikrotikRestCollector
+  defp collector_for_type(type) when type in ~w(snmpget snmpwalk snmpbulkwalk), do: SnmpCollector
 
   defp collector_for_type(other) do
     Logger.warning("No collector for type: #{other}")
-    IcmpCollector
+    nil
   end
 end

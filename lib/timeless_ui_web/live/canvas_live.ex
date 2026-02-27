@@ -23,7 +23,8 @@ defmodule TimelessUIWeb.CanvasLive do
     log_stream: "Logs",
     trace_stream: "Traces",
     canvas: "Canvas",
-    text: "Text"
+    text: "Text",
+    text_series: "TextSeries"
   }
 
   # @tick_interval removed — playback no longer used
@@ -90,6 +91,7 @@ defmodule TimelessUIWeb.CanvasLive do
          timeline_span: 300,
          timeline_data_range: nil,
          graph_data: %{},
+         text_data: %{},
          stream_data: stream_data,
          clipboard: [],
          paste_offset: 20,
@@ -108,6 +110,7 @@ defmodule TimelessUIWeb.CanvasLive do
        |> refresh_discovered_hosts()
        |> fetch_metric_units()
        |> fill_graph_data_at(DateTime.utc_now())
+       |> fill_text_data_at(DateTime.utc_now())
        |> push_density_update()}
     else
       _ ->
@@ -239,7 +242,7 @@ defmodule TimelessUIWeb.CanvasLive do
           </span>
           <span class="canvas-toolbar__sep"></span>
           <button
-            :for={kind <- ~w(rect canvas text)a}
+            :for={kind <- ~w(rect canvas text text_series)a}
             phx-click="set_place_kind"
             phx-value-kind={kind}
             class={"canvas-toolbar__btn canvas-type-btn#{if @place_kind == kind, do: " canvas-toolbar__btn--active", else: ""}"}
@@ -413,6 +416,7 @@ defmodule TimelessUIWeb.CanvasLive do
           expanded_graph_id={@expanded_graph_id}
           expanded_graph_data={@expanded_graph_data}
           metric_units={@metric_units}
+          text_value={text_value_for(element, @text_data)}
         />
 
         <.stream_popover :if={@stream_popover} popover={@stream_popover} />
@@ -1807,6 +1811,7 @@ defmodule TimelessUIWeb.CanvasLive do
      |> update_canvas(canvas)
      |> assign(timeline_mode: :historical, timeline_time: time)
      |> fill_graph_data_at(time)
+     |> fill_text_data_at(time)
      |> fill_stream_data_at(time)}
   end
 
@@ -1823,6 +1828,7 @@ defmodule TimelessUIWeb.CanvasLive do
     {:noreply,
      socket
      |> fill_graph_data_at(time)
+     |> fill_text_data_at(time)
      |> fill_stream_data_at(time)
      |> push_slider_update()}
   end
@@ -1864,6 +1870,15 @@ defmodule TimelessUIWeb.CanvasLive do
         end
 
       {:noreply, socket}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_info({:element_text_metric, element_id, _metric_name, value, timestamp}, socket) do
+    if socket.assigns.timeline_mode == :live do
+      text_data = Map.put(socket.assigns.text_data, element_id, {timestamp, value})
+      {:noreply, assign(socket, text_data: text_data)}
     else
       {:noreply, socket}
     end
@@ -2039,6 +2054,24 @@ defmodule TimelessUIWeb.CanvasLive do
         expanded_data = fetch_expanded_data(socket, expanded_id)
         assign(socket, expanded_graph_data: expanded_data)
     end
+  end
+
+  defp fill_text_data_at(socket, time) do
+    text_elements =
+      socket.assigns.canvas.elements
+      |> Enum.filter(fn {_id, el} -> el.type == :text_series end)
+
+    text_data =
+      Enum.reduce(text_elements, socket.assigns.text_data, fn {id, element}, acc ->
+        metric_name = Map.get(element.meta, "metric_name", "default")
+
+        case StatusManager.text_metric_at(id, metric_name, time) do
+          {:ok, value} -> Map.put(acc, id, {DateTime.to_unix(time, :millisecond), value})
+          :no_data -> acc
+        end
+      end)
+
+    assign(socket, text_data: text_data)
   end
 
   defp fetch_expanded_data(socket, element_id) do
@@ -2221,6 +2254,15 @@ defmodule TimelessUIWeb.CanvasLive do
         push_event(socket, "update-density", %{buckets: []})
     end
   end
+
+  defp text_value_for(%{type: :text_series} = element, text_data) do
+    case Map.get(text_data, element.id) do
+      {_ts, val} -> val
+      _ -> nil
+    end
+  end
+
+  defp text_value_for(_element, _text_data), do: nil
 
   defp stream_entries_for(%{type: type} = element, stream_data)
        when type in [:log_stream, :trace_stream] do
