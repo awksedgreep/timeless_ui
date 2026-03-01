@@ -9,7 +9,7 @@ defmodule TimelessUI.Accounts.UserNotifier do
     email =
       new()
       |> to(recipient)
-      |> from({"TimelessUI", "contact@example.com"})
+      |> from({"Timeless", Application.get_env(:timeless_ui, :mailer_from, "noreply@example.com")})
       |> subject(subject)
       |> text_body(body)
 
