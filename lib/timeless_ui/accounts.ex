@@ -80,6 +80,35 @@ defmodule TimelessUI.Accounts do
     |> Repo.insert()
   end
 
+  def create_user(attrs) do
+    %User{}
+    |> User.registration_changeset(attrs)
+    |> User.confirm_changeset()
+    |> Repo.insert()
+  end
+
+  def list_users do
+    Repo.all(User)
+  end
+
+  def delete_user(%User{} = user) do
+    Repo.delete(user)
+  end
+
+  def ensure_admin_user do
+    email = "admin@localhost"
+    password = System.get_env("TIMELESS_ADMIN_PASSWORD", "admin")
+
+    case get_user_by_email(email) do
+      nil ->
+        {:ok, _user} = create_user(%{email: email, password: password, role: "admin"})
+        :created
+
+      _user ->
+        :exists
+    end
+  end
+
   ## Settings
 
   @doc """

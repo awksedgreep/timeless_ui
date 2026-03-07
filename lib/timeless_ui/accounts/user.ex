@@ -6,6 +6,7 @@ defmodule TimelessUI.Accounts.User do
     field :email, :string
     field :password, :string, virtual: true, redact: true
     field :hashed_password, :string, redact: true
+    field :role, :string, default: "viewer"
     field :confirmed_at, :utc_datetime
     field :authenticated_at, :utc_datetime, virtual: true
 
@@ -105,6 +106,28 @@ defmodule TimelessUI.Accounts.User do
       changeset
     end
   end
+
+  def registration_changeset(user, attrs, opts \\ []) do
+    user
+    |> cast(attrs, [:email, :role])
+    |> validate_required([:email])
+    |> validate_format(:email, ~r/^[^@,;\s]+@[^@,;\s]+$/, message: "must have the @ sign and no spaces")
+    |> validate_length(:email, max: 160)
+    |> validate_inclusion(:role, ~w(admin viewer))
+    |> unique_constraint(:email)
+    |> then(fn changeset ->
+      if attrs[:password] || attrs["password"] do
+        changeset
+        |> cast(attrs, [:password])
+        |> validate_password(opts)
+      else
+        changeset
+      end
+    end)
+  end
+
+  def admin?(%__MODULE__{role: "admin"}), do: true
+  def admin?(_), do: false
 
   @doc """
   Confirms the account by setting `confirmed_at`.

@@ -61,11 +61,6 @@ defmodule TimelessUIWeb.Router do
 
     live_session :require_authenticated_user,
       on_mount: [{TimelessUIWeb.UserAuth, :require_authenticated}] do
-      live "/scrape-targets", ScrapeTargetLive, :index
-      live "/poller", PollerLive.Dashboard, :index
-      live "/poller/hosts", PollerLive.Hosts, :index
-      live "/poller/requests", PollerLive.Requests, :index
-      live "/poller/schedules", PollerLive.Schedules, :index
       live "/users/settings", UserLive.Settings, :edit
       live "/users/settings/confirm-email/:token", UserLive.Settings, :confirm_email
     end
@@ -74,11 +69,24 @@ defmodule TimelessUIWeb.Router do
   end
 
   scope "/", TimelessUIWeb do
+    pipe_through [:browser, :require_authenticated_user, :require_admin_user]
+
+    live_session :require_admin_user,
+      on_mount: [{TimelessUIWeb.UserAuth, :require_admin}] do
+      live "/scrape-targets", ScrapeTargetLive, :index
+      live "/poller", PollerLive.Dashboard, :index
+      live "/poller/hosts", PollerLive.Hosts, :index
+      live "/poller/requests", PollerLive.Requests, :index
+      live "/poller/schedules", PollerLive.Schedules, :index
+      live "/admin/users", UserLive.Admin, :index
+    end
+  end
+
+  scope "/", TimelessUIWeb do
     pipe_through [:browser]
 
     live_session :current_user,
       on_mount: [{TimelessUIWeb.UserAuth, :mount_current_scope}] do
-      live "/users/register", UserLive.Registration, :new
       live "/users/log-in", UserLive.Login, :new
       live "/users/log-in/:token", UserLive.Confirmation, :new
     end

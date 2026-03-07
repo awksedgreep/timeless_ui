@@ -4,6 +4,7 @@ defmodule TimelessUI.Application do
   @moduledoc false
 
   use Application
+  require Logger
 
   @impl true
   def start(_type, _args) do
@@ -22,7 +23,14 @@ defmodule TimelessUI.Application do
     # See https://hexdocs.pm/elixir/Supervisor.html
     # for other strategies and supported options
     opts = [strategy: :one_for_one, name: TimelessUI.Supervisor]
-    Supervisor.start_link(children, opts)
+    result = Supervisor.start_link(children, opts)
+
+    case TimelessUI.Accounts.ensure_admin_user() do
+      :created -> Logger.info("Default admin user created (admin@localhost)")
+      :exists -> :ok
+    end
+
+    result
   end
 
   # Tell Phoenix to update the endpoint configuration
