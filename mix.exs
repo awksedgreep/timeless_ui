@@ -65,7 +65,7 @@ defmodule TimelessUI.MixProject do
       {:dns_cluster, "~> 0.2.0"},
       {:swoosh, "~> 1.4"},
       {:bandit, "~> 1.5"},
-      {:timeless_canvas, github: "awksedgreep/timeless_canvas", tag: "v0.1.0"},
+      {:timeless_canvas, github: "awksedgreep/timeless_canvas", tag: "v0.2.0"},
       {:opentelemetry_phoenix, "~> 2.0"},
       {:opentelemetry_bandit, "~> 0.3.0"},
       {:opentelemetry_ecto, "~> 1.2"},
