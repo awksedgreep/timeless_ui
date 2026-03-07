@@ -96,12 +96,23 @@ defmodule TimelessUI.Accounts do
   end
 
   def ensure_admin_user do
-    email = "admin@localhost"
+    email = System.get_env("TIMELESS_ADMIN_EMAIL", "admin")
     password = System.get_env("TIMELESS_ADMIN_PASSWORD", "admin")
 
     case get_user_by_email(email) do
       nil ->
-        {:ok, _user} = create_user(%{email: email, password: password, role: "admin"})
+        now = DateTime.utc_now(:second)
+
+        {:ok, _user} =
+          %User{}
+          |> Ecto.Changeset.change(%{
+            email: email,
+            hashed_password: Bcrypt.hash_pwd_salt(password),
+            role: "admin",
+            confirmed_at: now
+          })
+          |> Repo.insert()
+
         :created
 
       _user ->

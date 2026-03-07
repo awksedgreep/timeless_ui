@@ -111,7 +111,6 @@ defmodule TimelessUI.Accounts.User do
     user
     |> cast(attrs, [:email, :role])
     |> validate_required([:email])
-    |> validate_format(:email, ~r/^[^@,;\s]+@[^@,;\s]+$/, message: "must have the @ sign and no spaces")
     |> validate_length(:email, max: 160)
     |> validate_inclusion(:role, ~w(admin viewer))
     |> unique_constraint(:email)

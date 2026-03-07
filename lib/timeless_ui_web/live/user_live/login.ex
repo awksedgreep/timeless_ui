@@ -40,7 +40,7 @@ defmodule TimelessUIWeb.UserLive.Login do
             readonly={!!@current_scope}
             field={f[:email]}
             type="email"
-            label="Email"
+            label="Username"
             autocomplete="email"
             required
             phx-mounted={JS.focus()}
@@ -64,7 +64,7 @@ defmodule TimelessUIWeb.UserLive.Login do
             readonly={!!@current_scope}
             field={f[:email]}
             type="email"
-            label="Email"
+            label="Username"
             autocomplete="email"
             required
           />
