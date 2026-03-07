@@ -4,7 +4,7 @@ defmodule TimelessUI.MixProject do
   def project do
     [
       app: :timeless_ui,
-      version: "0.5.2",
+      version: "0.6.0",
       elixir: "~> 1.15",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
@@ -65,6 +65,7 @@ defmodule TimelessUI.MixProject do
       {:dns_cluster, "~> 0.2.0"},
       {:swoosh, "~> 1.4"},
       {:bandit, "~> 1.5"},
+      {:timeless_canvas, github: "awksedgreep/timeless_canvas", tag: "v0.1.0"},
       {:opentelemetry_phoenix, "~> 2.0"},
       {:opentelemetry_bandit, "~> 0.3.0"},
       {:opentelemetry_ecto, "~> 1.2"},

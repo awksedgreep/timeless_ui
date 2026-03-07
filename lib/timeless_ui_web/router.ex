@@ -2,6 +2,7 @@ defmodule TimelessUIWeb.Router do
   use TimelessUIWeb, :router
 
   import TimelessUIWeb.UserAuth
+  import TimelessCanvas.Router
 
   pipeline :browser do
     plug :accepts, ["html"]
@@ -39,7 +40,7 @@ defmodule TimelessUIWeb.Router do
     end
   end
 
-  # Root redirect: authenticated -> /canvases, unauthenticated -> /users/log-in
+  # Root redirect: authenticated -> /canvas, unauthenticated -> /users/log-in
   scope "/", TimelessUIWeb do
     pipe_through [:browser]
 
@@ -48,13 +49,18 @@ defmodule TimelessUIWeb.Router do
 
   ## Authentication routes
 
+  scope "/" do
+    pipe_through [:browser, :require_authenticated_user]
+
+    live_canvas "/canvas",
+      on_mount: [{TimelessUIWeb.UserAuth, :require_authenticated}]
+  end
+
   scope "/", TimelessUIWeb do
     pipe_through [:browser, :require_authenticated_user]
 
     live_session :require_authenticated_user,
       on_mount: [{TimelessUIWeb.UserAuth, :require_authenticated}] do
-      live "/canvases", CanvasListLive, :index
-      live "/canvas/:id", CanvasLive, :show
       live "/scrape-targets", ScrapeTargetLive, :index
       live "/poller", PollerLive.Dashboard, :index
       live "/poller/hosts", PollerLive.Hosts, :index

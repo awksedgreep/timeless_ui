@@ -76,6 +76,14 @@ config :timeless_ui, :poller,
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason
 
+config :timeless_canvas,
+  repo: TimelessUI.Repo,
+  pubsub: TimelessUI.PubSub,
+  user_schema: TimelessUI.Accounts.User,
+  persistence: TimelessCanvas.Persistence.Ecto,
+  auth: TimelessCanvas.Auth.Policy,
+  current_user_fn: fn socket_or_conn -> socket_or_conn.assigns.current_scope.user end
+
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
 import_config "#{config_env()}.exs"

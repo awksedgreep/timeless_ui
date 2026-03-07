@@ -1,7 +1,6 @@
 import { Socket } from "phoenix";
 import { LiveSocket } from "phoenix_live_view";
-import CanvasHook from "./canvas_hook";
-import TimelineSlider from "./timeline_hook";
+import { CanvasHook, TimelineSlider } from "../../deps/timeless_canvas/assets/js";
 
 let csrfToken = document
   .querySelector("meta[name='csrf-token']")

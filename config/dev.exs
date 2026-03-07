@@ -1,8 +1,8 @@
 import Config
 
-# Use random data generator in dev for live graph/status data
-config :timeless_ui, :data_source,
-  module: TimelessUI.DataSource.Random,
+# Use random data generator in dev for live canvas data
+config :timeless_canvas, :data_source,
+  module: TimelessCanvas.DataSource.Random,
   config: %{},
   poll_interval: 2_000
 

@@ -14,8 +14,7 @@ defmodule TimelessUI.Application do
        repos: Application.fetch_env!(:timeless_ui, :ecto_repos), skip: skip_migrations?()},
       {DNSCluster, query: Application.get_env(:timeless_ui, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: TimelessUI.PubSub},
-      TimelessUI.DataSource.Manager,
-      TimelessUI.StreamManager,
+      TimelessCanvas.Supervisor,
       {TimelessUI.Poller.Supervisor, Application.get_env(:timeless_ui, :poller, enabled: false)},
       TimelessUIWeb.Endpoint
     ]
