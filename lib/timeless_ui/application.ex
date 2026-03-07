@@ -26,7 +26,7 @@ defmodule TimelessUI.Application do
     result = Supervisor.start_link(children, opts)
 
     case TimelessUI.Accounts.ensure_admin_user() do
-      :created -> Logger.info("Default admin user created (admin@localhost)")
+      :created -> Logger.info("Default admin user created")
       :exists -> :ok
     end
 
