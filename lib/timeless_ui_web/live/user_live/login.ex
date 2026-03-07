@@ -1,8 +1,6 @@
 defmodule TimelessUIWeb.UserLive.Login do
   use TimelessUIWeb, :live_view
 
-  alias TimelessUI.Accounts
-
   @impl true
   def render(assigns) do
     ~H"""
@@ -19,54 +17,22 @@ defmodule TimelessUIWeb.UserLive.Login do
           </.header>
         </div>
 
-        <div :if={local_mail_adapter?()} class="alert alert-info">
-          <.icon name="hero-information-circle" class="size-6 shrink-0" />
-          <div>
-            <p>You are running the local mail adapter.</p>
-            <p>
-              To see sent emails, visit <.link href="/dev/mailbox" class="underline">the mailbox page</.link>.
-            </p>
-          </div>
-        </div>
-
         <.form
           :let={f}
           for={@form}
-          id="login_form_magic"
+          id="login_form"
           action={~p"/users/log-in"}
-          phx-submit="submit_magic"
-        >
-          <.input
-            readonly={!!@current_scope}
-            field={f[:email]}
-            type="email"
-            label="Username"
-            autocomplete="email"
-            required
-            phx-mounted={JS.focus()}
-          />
-          <.button class="btn btn-primary w-full">
-            Log in with email <span aria-hidden="true">→</span>
-          </.button>
-        </.form>
-
-        <div class="divider">or</div>
-
-        <.form
-          :let={f}
-          for={@form}
-          id="login_form_password"
-          action={~p"/users/log-in"}
-          phx-submit="submit_password"
+          phx-submit="submit"
           phx-trigger-action={@trigger_submit}
         >
           <.input
             readonly={!!@current_scope}
-            field={f[:email]}
-            type="email"
+            field={f[:username]}
+            type="text"
             label="Username"
-            autocomplete="email"
+            autocomplete="username"
             required
+            phx-mounted={JS.focus()}
           />
           <.input
             field={@form[:password]}
@@ -75,10 +41,7 @@ defmodule TimelessUIWeb.UserLive.Login do
             autocomplete="current-password"
           />
           <.button class="btn btn-primary w-full" name={@form[:remember_me].name} value="true">
-            Log in and stay logged in <span aria-hidden="true">→</span>
-          </.button>
-          <.button class="btn btn-primary btn-soft w-full mt-2">
-            Log in only this time
+            Log in <span aria-hidden="true">→</span>
           </.button>
         </.form>
       </div>
@@ -88,38 +51,17 @@ defmodule TimelessUIWeb.UserLive.Login do
 
   @impl true
   def mount(_params, _session, socket) do
-    email =
-      Phoenix.Flash.get(socket.assigns.flash, :email) ||
-        get_in(socket.assigns, [:current_scope, Access.key(:user), Access.key(:email)])
+    username =
+      Phoenix.Flash.get(socket.assigns.flash, :username) ||
+        get_in(socket.assigns, [:current_scope, Access.key(:user), Access.key(:username)])
 
-    form = to_form(%{"email" => email}, as: "user")
+    form = to_form(%{"username" => username}, as: "user")
 
     {:ok, assign(socket, form: form, trigger_submit: false)}
   end
 
   @impl true
-  def handle_event("submit_password", _params, socket) do
+  def handle_event("submit", _params, socket) do
     {:noreply, assign(socket, :trigger_submit, true)}
-  end
-
-  def handle_event("submit_magic", %{"user" => %{"email" => email}}, socket) do
-    if user = Accounts.get_user_by_email(email) do
-      Accounts.deliver_login_instructions(
-        user,
-        &url(~p"/users/log-in/#{&1}")
-      )
-    end
-
-    info =
-      "If your email is in our system, you will receive instructions for logging in shortly."
-
-    {:noreply,
-     socket
-     |> put_flash(:info, info)
-     |> push_navigate(to: ~p"/users/log-in")}
-  end
-
-  defp local_mail_adapter? do
-    Application.get_env(:timeless_ui, TimelessUI.Mailer)[:adapter] == Swoosh.Adapters.Local
   end
 end

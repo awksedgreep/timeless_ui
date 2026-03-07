@@ -18,7 +18,7 @@ defmodule TimelessUIWeb.UserLive.Admin do
           <div class="card-body">
             <h2 class="card-title">Create User</h2>
             <.form for={@form} id="create_user_form" phx-submit="create" phx-change="validate" class="space-y-4">
-              <.input field={@form[:email]} type="email" label="Email" required phx-mounted={JS.focus()} />
+              <.input field={@form[:username]} type="text" label="Username" required phx-mounted={JS.focus()} />
               <.input field={@form[:password]} type="password" label="Password" required />
               <.input
                 field={@form[:role]}
@@ -35,7 +35,7 @@ defmodule TimelessUIWeb.UserLive.Admin do
           <table class="table">
             <thead>
               <tr>
-                <th>Email</th>
+                <th>Username</th>
                 <th>Role</th>
                 <th>Created</th>
                 <th></th>
@@ -43,7 +43,7 @@ defmodule TimelessUIWeb.UserLive.Admin do
             </thead>
             <tbody>
               <tr :for={user <- @users} id={"user-#{user.id}"}>
-                <td><%= user.email %></td>
+                <td><%= user.username %></td>
                 <td><span class={["badge", user.role == "admin" && "badge-primary"]}><%= user.role %></span></td>
                 <td><%= Calendar.strftime(user.inserted_at, "%Y-%m-%d") %></td>
                 <td>
@@ -51,7 +51,7 @@ defmodule TimelessUIWeb.UserLive.Admin do
                     :if={user.id != @current_scope.user.id}
                     phx-click="delete"
                     phx-value-id={user.id}
-                    data-confirm={"Delete #{user.email}?"}
+                    data-confirm={"Delete #{user.username}?"}
                     class="btn btn-error btn-xs"
                   >
                     Delete
@@ -82,7 +82,7 @@ defmodule TimelessUIWeb.UserLive.Admin do
       {:ok, user} ->
         {:noreply,
          socket
-         |> put_flash(:info, "User #{user.email} created.")
+         |> put_flash(:info, "User #{user.username} created.")
          |> assign(:users, Accounts.list_users())
          |> assign_form(Ecto.Changeset.change(%User{}, %{role: "viewer"}))}
 
@@ -106,7 +106,7 @@ defmodule TimelessUIWeb.UserLive.Admin do
 
     {:noreply,
      socket
-     |> put_flash(:info, "User #{user.email} deleted.")
+     |> put_flash(:info, "User #{user.username} deleted.")
      |> assign(:users, Accounts.list_users())}
   end
 

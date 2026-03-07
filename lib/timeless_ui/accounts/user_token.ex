@@ -79,7 +79,7 @@ defmodule TimelessUI.Accounts.UserToken do
   for example, by phone numbers.
   """
   def build_email_token(user, context) do
-    build_hashed_token(user, context, user.email)
+    build_hashed_token(user, context, user.username)
   end
 
   defp build_hashed_token(user, context, sent_to) do
@@ -113,7 +113,7 @@ defmodule TimelessUI.Accounts.UserToken do
           from token in by_token_and_context_query(hashed_token, "login"),
             join: user in assoc(token, :user),
             where: token.inserted_at > ago(^@magic_link_validity_in_minutes, "minute"),
-            where: token.sent_to == user.email,
+            where: token.sent_to == user.username,
             select: {user, token}
 
         {:ok, query}
