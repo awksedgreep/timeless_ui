@@ -46,7 +46,14 @@ defmodule TimelessUIWeb.UserLive.Admin do
                 <td><%= user.username %></td>
                 <td><span class={["badge", user.role == "admin" && "badge-primary"]}><%= user.role %></span></td>
                 <td><%= Calendar.strftime(user.inserted_at, "%Y-%m-%d") %></td>
-                <td>
+                <td class="flex gap-2">
+                  <button
+                    phx-click="show_reset"
+                    phx-value-id={user.id}
+                    class="btn btn-warning btn-xs"
+                  >
+                    Reset Password
+                  </button>
                   <button
                     :if={user.id != @current_scope.user.id}
                     phx-click="delete"
@@ -61,6 +68,20 @@ defmodule TimelessUIWeb.UserLive.Admin do
             </tbody>
           </table>
         </div>
+
+        <div :if={@reset_user} class="card bg-base-200">
+          <div class="card-body">
+            <h2 class="card-title">Reset password for <%= @reset_user.username %></h2>
+            <.form for={to_form(%{}, as: "reset")} id="reset-form" phx-submit="reset_password">
+              <input type="hidden" name="reset[user_id]" value={@reset_user.id} />
+              <.input name="reset[password]" type="password" label="New password" required value="" />
+              <div class="flex gap-2 mt-4">
+                <.button class="btn btn-primary">Reset Password</.button>
+                <button type="button" phx-click="cancel_reset" class="btn">Cancel</button>
+              </div>
+            </.form>
+          </div>
+        </div>
       </div>
     </Layouts.app>
     """
@@ -73,6 +94,7 @@ defmodule TimelessUIWeb.UserLive.Admin do
     {:ok,
      socket
      |> assign(:users, Accounts.list_users())
+     |> assign(:reset_user, nil)
      |> assign_form(changeset)}
   end
 
@@ -98,6 +120,30 @@ defmodule TimelessUIWeb.UserLive.Admin do
       |> Map.put(:action, :validate)
 
     {:noreply, assign_form(socket, changeset)}
+  end
+
+  def handle_event("show_reset", %{"id" => id}, socket) do
+    user = Accounts.get_user!(id)
+    {:noreply, assign(socket, :reset_user, user)}
+  end
+
+  def handle_event("cancel_reset", _params, socket) do
+    {:noreply, assign(socket, :reset_user, nil)}
+  end
+
+  def handle_event("reset_password", %{"reset" => %{"user_id" => id, "password" => password}}, socket) do
+    user = Accounts.get_user!(id)
+
+    case Accounts.reset_user_password(user, password) do
+      {:ok, _user} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Password reset for #{user.username}.")
+         |> assign(:reset_user, nil)}
+
+      {:error, _changeset} ->
+        {:noreply, put_flash(socket, :error, "Failed to reset password.")}
+    end
   end
 
   def handle_event("delete", %{"id" => id}, socket) do

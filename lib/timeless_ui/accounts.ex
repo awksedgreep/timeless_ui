@@ -39,6 +39,12 @@ defmodule TimelessUI.Accounts do
     Repo.delete(user)
   end
 
+  def reset_user_password(%User{} = user, new_password) do
+    user
+    |> Ecto.Changeset.change(%{hashed_password: Bcrypt.hash_pwd_salt(new_password)})
+    |> Repo.update()
+  end
+
   def ensure_admin_user do
     username = System.get_env("TIMELESS_ADMIN_USER", "admin")
     password = System.get_env("TIMELESS_ADMIN_PASSWORD", "admin")
