@@ -37,11 +37,11 @@ defmodule TimelessUI.Poller.Host do
     tag in tags_list(host)
   end
 
-  @doc "Returns true if the host has any of the given tags."
-  def has_any_tag?(%__MODULE__{} = host, tags) when is_list(tags) do
+  @doc "Returns true if the host has ALL of the given tags."
+  def has_all_tags?(%__MODULE__{} = host, required_tags) when is_list(required_tags) do
     host_tags = tags_list(host)
-    Enum.any?(tags, &(&1 in host_tags))
+    Enum.all?(required_tags, &(&1 in host_tags))
   end
 
-  def has_any_tag?(%__MODULE__{}, _), do: true
+  def has_all_tags?(%__MODULE__{}, _), do: true
 end

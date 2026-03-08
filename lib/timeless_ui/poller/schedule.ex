@@ -5,15 +5,15 @@ defmodule TimelessUI.Poller.Schedule do
   schema "poller_schedules" do
     field :name, :string
     field :cron, :string
-    field :host_groups, :map, default: %{}
-    field :request_groups, :map, default: %{}
+    field :host_tags, :string, default: ""
+    field :request_tags, :string, default: ""
     field :enabled, :boolean, default: true
 
     timestamps(type: :utc_datetime)
   end
 
   @required_fields ~w(name cron)a
-  @optional_fields ~w(host_groups request_groups enabled)a
+  @optional_fields ~w(host_tags request_tags enabled)a
 
   def changeset(schedule, attrs) do
     schedule
@@ -36,6 +36,15 @@ defmodule TimelessUI.Poller.Schedule do
     end
   end
 
-  def host_groups(%__MODULE__{host_groups: groups}), do: groups || %{}
-  def request_groups(%__MODULE__{request_groups: groups}), do: groups || %{}
+  def host_tags_list(%__MODULE__{host_tags: tags}) when is_binary(tags) do
+    tags |> String.split(",", trim: true) |> Enum.map(&String.trim/1)
+  end
+
+  def host_tags_list(%__MODULE__{}), do: []
+
+  def request_tags_list(%__MODULE__{request_tags: tags}) when is_binary(tags) do
+    tags |> String.split(",", trim: true) |> Enum.map(&String.trim/1)
+  end
+
+  def request_tags_list(%__MODULE__{}), do: []
 end

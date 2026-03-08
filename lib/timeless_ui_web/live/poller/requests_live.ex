@@ -44,6 +44,7 @@ defmodule TimelessUIWeb.PollerLive.Requests do
             <tr>
               <th>Name</th>
               <th>Type</th>
+              <th>Tags</th>
               <th>Description</th>
               <th>Actions</th>
             </tr>
@@ -53,6 +54,7 @@ defmodule TimelessUIWeb.PollerLive.Requests do
               <tr>
                 <td class="font-medium">{request.name}</td>
                 <td><span class="badge badge-outline">{request.type}</span></td>
+                <td class="text-sm">{request.tags}</td>
                 <td class="text-sm text-base-content/70">{request.description || "—"}</td>
                 <td>
                   <div class="flex gap-1">
@@ -125,15 +127,27 @@ defmodule TimelessUIWeb.PollerLive.Requests do
               </select>
             </div>
           </div>
-          <div class="mb-6">
-            <div class="text-sm text-base-content/70 mb-2">Description</div>
-            <input
-              type="text"
-              name="request[description]"
-              value={Changeset.get_field(@changeset, :description)}
-              class="input input-bordered w-full"
-              placeholder="Optional description"
-            />
+          <div class="grid grid-cols-2 gap-6 mb-6">
+            <div>
+              <div class="text-sm text-base-content/70 mb-2">Tags</div>
+              <input
+                type="text"
+                name="request[tags]"
+                value={Changeset.get_field(@changeset, :tags) || ""}
+                class="input input-bordered w-full"
+                placeholder="ifX, snmp"
+              />
+            </div>
+            <div>
+              <div class="text-sm text-base-content/70 mb-2">Description</div>
+              <input
+                type="text"
+                name="request[description]"
+                value={Changeset.get_field(@changeset, :description)}
+                class="input input-bordered w-full"
+                placeholder="Optional description"
+              />
+            </div>
           </div>
           <div :if={@is_snmp} class="grid grid-cols-2 gap-6 mb-6">
             <div>

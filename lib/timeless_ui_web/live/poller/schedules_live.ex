@@ -1,7 +1,7 @@
 defmodule TimelessUIWeb.PollerLive.Schedules do
   use TimelessUIWeb, :live_view
 
-  alias TimelessUI.Poller.{Schedules, Schedule, Hosts, Requests}
+  alias TimelessUI.Poller.{Schedules, Schedule}
   alias Ecto.Changeset
 
   @impl true
@@ -11,8 +11,6 @@ defmodule TimelessUIWeb.PollerLive.Schedules do
      |> assign(
        page_title: "Poller Schedules",
        schedules: Schedules.list_schedules(),
-       hosts: Hosts.list_hosts(),
-       requests: Requests.list_requests(),
        show_form: false,
        editing: nil,
        changeset: Schedules.change_schedule(%Schedule{})
@@ -33,13 +31,7 @@ defmodule TimelessUIWeb.PollerLive.Schedules do
         </button>
       </div>
 
-      <.schedule_form
-        :if={@show_form}
-        changeset={@changeset}
-        editing={@editing}
-        hosts={@hosts}
-        requests={@requests}
-      />
+      <.schedule_form :if={@show_form} changeset={@changeset} editing={@editing} />
 
       <div :if={@schedules == []} class="text-center text-base-content/60 py-16">
         <p class="text-lg mb-4">No schedules configured</p>
@@ -53,7 +45,7 @@ defmodule TimelessUIWeb.PollerLive.Schedules do
               <th>Name</th>
               <th>Cron</th>
               <th>Host Tags</th>
-              <th>Requests</th>
+              <th>Request Tags</th>
               <th>Enabled</th>
               <th>Actions</th>
             </tr>
@@ -63,8 +55,8 @@ defmodule TimelessUIWeb.PollerLive.Schedules do
               <tr>
                 <td class="font-medium">{schedule.name}</td>
                 <td class="font-mono text-sm">{schedule.cron}</td>
-                <td class="text-sm">{format_host_tags(schedule.host_groups)}</td>
-                <td class="text-sm">{format_request_names(schedule.request_groups)}</td>
+                <td class="text-sm">{display_tags(schedule.host_tags)}</td>
+                <td class="text-sm">{display_tags(schedule.request_tags)}</td>
                 <td>
                   <button
                     phx-click="toggle_enabled"
@@ -106,16 +98,6 @@ defmodule TimelessUIWeb.PollerLive.Schedules do
   end
 
   defp schedule_form(assigns) do
-    host_groups = Changeset.get_field(assigns.changeset, :host_groups) || %{}
-    request_groups = Changeset.get_field(assigns.changeset, :request_groups) || %{}
-    host_tags = Map.get(host_groups, "tags") || []
-    request_names = Map.get(request_groups, "names") || []
-
-    assigns =
-      assigns
-      |> Map.put(:host_tags_str, Enum.join(host_tags, ", "))
-      |> Map.put(:request_names_str, Enum.join(request_names, ", "))
-
     ~H"""
     <div class="card bg-base-200 mb-8">
       <div class="card-body">
@@ -132,7 +114,7 @@ defmodule TimelessUIWeb.PollerLive.Schedules do
                 value={Changeset.get_field(@changeset, :name)}
                 required
                 class="input input-bordered w-full"
-                placeholder="every-5m-snmp"
+                placeholder="eureka-ifx-5m"
               />
             </div>
             <div>
@@ -155,21 +137,21 @@ defmodule TimelessUIWeb.PollerLive.Schedules do
               <input
                 type="text"
                 name="schedule[host_tags]"
-                value={@host_tags_str}
+                value={Changeset.get_field(@changeset, :host_tags) || ""}
                 class="input input-bordered w-full"
-                placeholder="production, us-east"
+                placeholder="cm, eureka"
               />
             </div>
             <div>
               <div class="text-sm text-base-content/70 mb-2">
-                Requests <span class="text-base-content/40">(blank = all)</span>
+                Request Tags <span class="text-base-content/40">(blank = all)</span>
               </div>
               <input
                 type="text"
-                name="schedule[request_names]"
-                value={@request_names_str}
+                name="schedule[request_tags]"
+                value={Changeset.get_field(@changeset, :request_tags) || ""}
                 class="input input-bordered w-full"
-                placeholder="ifX, sysUptime"
+                placeholder="ifX"
               />
             </div>
           </div>
@@ -196,21 +178,9 @@ defmodule TimelessUIWeb.PollerLive.Schedules do
     """
   end
 
-  defp format_host_tags(nil), do: "all"
-  defp format_host_tags(groups) when groups == %{}, do: "all"
-
-  defp format_host_tags(groups) do
-    tags = Map.get(groups, "tags") || []
-    if tags == [], do: "all", else: Enum.join(tags, ", ")
-  end
-
-  defp format_request_names(nil), do: "all"
-  defp format_request_names(groups) when groups == %{}, do: "all"
-
-  defp format_request_names(groups) do
-    names = Map.get(groups, "names") || []
-    if names == [], do: "all", else: Enum.join(names, ", ")
-  end
+  defp display_tags(nil), do: "all"
+  defp display_tags(""), do: "all"
+  defp display_tags(tags), do: tags
 
   # --- Event Handlers ---
 
@@ -240,27 +210,7 @@ defmodule TimelessUIWeb.PollerLive.Schedules do
   end
 
   def handle_event("save_schedule", %{"schedule" => params}, socket) do
-    host_tags =
-      (params["host_tags"] || "")
-      |> String.split(",", trim: true)
-      |> Enum.map(&String.trim/1)
-      |> Enum.reject(&(&1 == ""))
-
-    request_names =
-      (params["request_names"] || "")
-      |> String.split(",", trim: true)
-      |> Enum.map(&String.trim/1)
-      |> Enum.reject(&(&1 == ""))
-
-    host_groups = if host_tags == [], do: %{}, else: %{"tags" => host_tags}
-    request_groups = if request_names == [], do: %{}, else: %{"names" => request_names}
-
-    params =
-      params
-      |> Map.drop(["host_tags", "request_names"])
-      |> Map.put("host_groups", host_groups)
-      |> Map.put("request_groups", request_groups)
-      |> parse_boolean_fields(["enabled"])
+    params = parse_boolean_fields(params, ["enabled"])
 
     result =
       if socket.assigns.editing do

@@ -9,7 +9,7 @@ defmodule TimelessUI.Poller.Scheduler do
 
   require Logger
 
-  alias TimelessUI.Poller.{Schedules, Hosts, Requests, Dispatcher}
+  alias TimelessUI.Poller.{Schedules, Schedule, Hosts, Requests, Dispatcher}
 
   defstruct [:timer_ref, schedules_total: 0, last_tick: nil, jobs_enqueued: 0]
 
@@ -85,8 +85,8 @@ defmodule TimelessUI.Poller.Scheduler do
   end
 
   defp resolve_jobs(schedule) do
-    host_tags = Map.get(schedule.host_groups || %{}, "tags", [])
-    request_names = Map.get(schedule.request_groups || %{}, "names", [])
+    host_tags = Schedule.host_tags_list(schedule)
+    request_tags = Schedule.request_tags_list(schedule)
 
     hosts =
       if host_tags == [] do
@@ -96,10 +96,10 @@ defmodule TimelessUI.Poller.Scheduler do
       end
 
     requests =
-      if request_names == [] do
+      if request_tags == [] do
         Requests.list_requests()
       else
-        Requests.list_requests_by_names(request_names)
+        Requests.list_requests_by_tags(request_tags)
       end
 
     for host <- hosts, request <- requests do

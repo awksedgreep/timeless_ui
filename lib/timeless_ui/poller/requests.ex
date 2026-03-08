@@ -8,8 +8,9 @@ defmodule TimelessUI.Poller.Requests do
     Repo.all(from r in Request, order_by: [asc: r.name])
   end
 
-  def list_requests_by_names(names) when is_list(names) do
-    Repo.all(from r in Request, where: r.name in ^names, order_by: [asc: r.name])
+  def list_requests_by_tags(tags) when is_list(tags) do
+    list_requests()
+    |> Enum.filter(&Request.has_all_tags?(&1, tags))
   end
 
   def get_request!(id), do: Repo.get!(Request, id)

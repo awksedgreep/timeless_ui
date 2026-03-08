@@ -10,7 +10,7 @@ defmodule TimelessUI.Poller.Hosts do
 
   def list_hosts_by_tags(tags) when is_list(tags) do
     list_hosts()
-    |> Enum.filter(&Host.has_any_tag?(&1, tags))
+    |> Enum.filter(&Host.has_all_tags?(&1, tags))
   end
 
   def get_host!(id), do: Repo.get!(Host, id)
