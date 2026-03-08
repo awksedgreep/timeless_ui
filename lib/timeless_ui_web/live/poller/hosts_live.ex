@@ -89,33 +89,33 @@ defmodule TimelessUIWeb.PollerLive.Hosts do
         <h2 class="card-title mb-4">
           {if @editing, do: "Edit Host", else: "Add Host"}
         </h2>
-        <form phx-submit="save_host">
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div class="form-control">
-              <label class="label"><span class="label-text">Name *</span></label>
+        <form phx-submit="save_host" class="space-y-4">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
+            <div>
+              <div class="text-sm text-base-content/70 mb-1.5">Name *</div>
               <input
                 type="text"
                 name="host[name]"
                 value={Changeset.get_field(@changeset, :name)}
                 required
-                class="input input-bordered"
-                placeholder="e.g. core-router-1"
+                class="input input-bordered w-full"
+                placeholder="core-router-1"
               />
             </div>
-            <div class="form-control">
-              <label class="label"><span class="label-text">IP Address *</span></label>
+            <div>
+              <div class="text-sm text-base-content/70 mb-1.5">IP Address *</div>
               <input
                 type="text"
                 name="host[ip]"
                 value={Changeset.get_field(@changeset, :ip)}
                 required
-                class="input input-bordered"
-                placeholder="e.g. 192.168.1.1"
+                class="input input-bordered w-full"
+                placeholder="192.168.1.1"
               />
             </div>
-            <div class="form-control">
-              <label class="label"><span class="label-text">Type</span></label>
-              <select name="host[type]" class="select select-bordered">
+            <div>
+              <div class="text-sm text-base-content/70 mb-1.5">Type</div>
+              <select name="host[type]" class="select select-bordered w-full">
                 <option value="generic" selected={Changeset.get_field(@changeset, :type) == "generic"}>
                   Generic
                 </option>
@@ -136,9 +136,9 @@ defmodule TimelessUIWeb.PollerLive.Hosts do
                 </option>
               </select>
             </div>
-            <div class="form-control">
-              <label class="label"><span class="label-text">Status</span></label>
-              <select name="host[status]" class="select select-bordered">
+            <div>
+              <div class="text-sm text-base-content/70 mb-1.5">Status</div>
+              <select name="host[status]" class="select select-bordered w-full">
                 <option value="active" selected={Changeset.get_field(@changeset, :status) == "active"}>
                   Active
                 </option>
@@ -150,18 +150,18 @@ defmodule TimelessUIWeb.PollerLive.Hosts do
                 </option>
               </select>
             </div>
-            <div class="form-control sm:col-span-2">
-              <label class="label"><span class="label-text">Tags</span></label>
-              <input
-                type="text"
-                name="host[tags]"
-                value={Changeset.get_field(@changeset, :tags) || ""}
-                class="input input-bordered"
-                placeholder="e.g. production, critical, us-east"
-              />
-            </div>
           </div>
-          <div class="card-actions justify-end mt-6">
+          <div>
+            <div class="text-sm text-base-content/70 mb-1.5">Tags</div>
+            <input
+              type="text"
+              name="host[tags]"
+              value={Changeset.get_field(@changeset, :tags) || ""}
+              class="input input-bordered w-full"
+              placeholder="production, critical, us-east"
+            />
+          </div>
+          <div class="flex justify-end gap-2 pt-2">
             <button type="button" phx-click="cancel_form" class="btn btn-ghost">Cancel</button>
             <button type="submit" class="btn btn-primary">
               {if @editing, do: "Update", else: "Create"}
