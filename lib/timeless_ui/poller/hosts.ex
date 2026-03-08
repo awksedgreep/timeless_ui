@@ -8,9 +8,9 @@ defmodule TimelessUI.Poller.Hosts do
     Repo.all(from h in Host, order_by: [asc: h.name])
   end
 
-  def list_hosts_by_group(group_criteria) when is_map(group_criteria) do
+  def list_hosts_by_tags(tags) when is_list(tags) do
     list_hosts()
-    |> Enum.filter(&Host.matches_any_group?(&1, group_criteria))
+    |> Enum.filter(&Host.has_any_tag?(&1, tags))
   end
 
   def get_host!(id), do: Repo.get!(Host, id)

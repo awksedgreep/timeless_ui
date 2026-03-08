@@ -2,6 +2,7 @@ defmodule TimelessUIWeb.PollerLive.Hosts do
   use TimelessUIWeb, :live_view
 
   alias TimelessUI.Poller.{Hosts, Host}
+  alias Ecto.Changeset
 
   @impl true
   def mount(_params, _session, socket) do
@@ -45,7 +46,7 @@ defmodule TimelessUIWeb.PollerLive.Hosts do
               <th>IP</th>
               <th>Type</th>
               <th>Status</th>
-              <th>Groups</th>
+              <th>Tags</th>
               <th>Actions</th>
             </tr>
           </thead>
@@ -56,7 +57,7 @@ defmodule TimelessUIWeb.PollerLive.Hosts do
                 <td class="font-mono text-sm">{host.ip}</td>
                 <td>{host.type}</td>
                 <td><.status_badge status={host.status} /></td>
-                <td class="text-sm">{format_groups(host.groups)}</td>
+                <td class="text-sm">{host.tags}</td>
                 <td>
                   <div class="flex gap-1">
                     <button phx-click="edit_host" phx-value-id={host.id} class="btn btn-xs btn-ghost">
@@ -95,7 +96,7 @@ defmodule TimelessUIWeb.PollerLive.Hosts do
               <input
                 type="text"
                 name="host[name]"
-                value={Ecto.Changeset.get_field(@changeset, :name)}
+                value={Changeset.get_field(@changeset, :name)}
                 required
                 class="input input-bordered"
                 placeholder="e.g. core-router-1"
@@ -106,7 +107,7 @@ defmodule TimelessUIWeb.PollerLive.Hosts do
               <input
                 type="text"
                 name="host[ip]"
-                value={Ecto.Changeset.get_field(@changeset, :ip)}
+                value={Changeset.get_field(@changeset, :ip)}
                 required
                 class="input input-bordered"
                 placeholder="e.g. 192.168.1.1"
@@ -114,48 +115,50 @@ defmodule TimelessUIWeb.PollerLive.Hosts do
             </div>
             <div class="form-control">
               <label class="label"><span class="label-text">Type</span></label>
-              <input
-                type="text"
-                name="host[type]"
-                value={Ecto.Changeset.get_field(@changeset, :type)}
-                class="input input-bordered"
-                placeholder="e.g. router, switch, server"
-              />
+              <select name="host[type]" class="select select-bordered">
+                <option value="generic" selected={Changeset.get_field(@changeset, :type) == "generic"}>
+                  Generic
+                </option>
+                <option value="router" selected={Changeset.get_field(@changeset, :type) == "router"}>
+                  Router
+                </option>
+                <option value="switch" selected={Changeset.get_field(@changeset, :type) == "switch"}>
+                  Switch
+                </option>
+                <option value="server" selected={Changeset.get_field(@changeset, :type) == "server"}>
+                  Server
+                </option>
+                <option
+                  value="firewall"
+                  selected={Changeset.get_field(@changeset, :type) == "firewall"}
+                >
+                  Firewall
+                </option>
+              </select>
             </div>
             <div class="form-control">
               <label class="label"><span class="label-text">Status</span></label>
               <select name="host[status]" class="select select-bordered">
-                <option
-                  value="active"
-                  selected={Ecto.Changeset.get_field(@changeset, :status) == "active"}
-                >
+                <option value="active" selected={Changeset.get_field(@changeset, :status) == "active"}>
                   Active
                 </option>
                 <option
                   value="inactive"
-                  selected={Ecto.Changeset.get_field(@changeset, :status) == "inactive"}
+                  selected={Changeset.get_field(@changeset, :status) == "inactive"}
                 >
                   Inactive
                 </option>
               </select>
             </div>
             <div class="form-control sm:col-span-2">
-              <label class="label"><span class="label-text">Groups (JSON)</span></label>
-              <textarea
-                name="host[groups]"
-                class="textarea textarea-bordered font-mono text-sm"
-                rows="2"
-                placeholder={~s|{"region": "us-east", "role": "router"}|}
-              >{encode_json(Ecto.Changeset.get_field(@changeset, :groups))}</textarea>
-            </div>
-            <div class="form-control sm:col-span-2">
-              <label class="label"><span class="label-text">Tags (JSON array)</span></label>
-              <textarea
+              <label class="label"><span class="label-text">Tags</span></label>
+              <input
+                type="text"
                 name="host[tags]"
-                class="textarea textarea-bordered font-mono text-sm"
-                rows="2"
-                placeholder={~s|["production", "critical"]|}
-              >{Ecto.Changeset.get_field(@changeset, :tags) || "[]"}</textarea>
+                value={Changeset.get_field(@changeset, :tags) || ""}
+                class="input input-bordered"
+                placeholder="e.g. production, critical, us-east"
+              />
             </div>
           </div>
           <div class="card-actions justify-end mt-6">
@@ -182,19 +185,6 @@ defmodule TimelessUIWeb.PollerLive.Hosts do
   defp status_color("active"), do: "bg-success"
   defp status_color("inactive"), do: "bg-base-content/30"
   defp status_color(_), do: "bg-warning"
-
-  defp format_groups(nil), do: ""
-  defp format_groups(groups) when groups == %{}, do: ""
-
-  defp format_groups(groups) do
-    groups
-    |> Enum.map(fn {k, v} -> "#{k}=#{v}" end)
-    |> Enum.join(", ")
-  end
-
-  defp encode_json(nil), do: ""
-  defp encode_json(val) when val == %{}, do: ""
-  defp encode_json(val), do: Jason.encode!(val, pretty: true)
 
   # --- Event Handlers ---
 
@@ -224,8 +214,6 @@ defmodule TimelessUIWeb.PollerLive.Hosts do
   end
 
   def handle_event("save_host", %{"host" => params}, socket) do
-    params = parse_json_fields(params, ["groups"])
-
     result =
       if socket.assigns.editing do
         Hosts.update_host(socket.assigns.editing, params)
@@ -263,26 +251,5 @@ defmodule TimelessUIWeb.PollerLive.Hosts do
       {:error, _} ->
         {:noreply, put_flash(socket, :error, "Failed to delete host.")}
     end
-  end
-
-  defp parse_json_fields(params, fields) do
-    Enum.reduce(fields, params, fn field, acc ->
-      case Map.get(acc, field) do
-        nil ->
-          acc
-
-        "" ->
-          Map.put(acc, field, %{})
-
-        str when is_binary(str) ->
-          case Jason.decode(str) do
-            {:ok, val} -> Map.put(acc, field, val)
-            {:error, _} -> acc
-          end
-
-        _ ->
-          acc
-      end
-    end)
   end
 end

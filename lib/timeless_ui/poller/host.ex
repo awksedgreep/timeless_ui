@@ -8,14 +8,13 @@ defmodule TimelessUI.Poller.Host do
     field :type, :string, default: "generic"
     field :status, :string, default: "active"
     field :config, :map, default: %{}
-    field :groups, :map, default: %{}
-    field :tags, :string, default: "[]"
+    field :tags, :string, default: ""
 
     timestamps(type: :utc_datetime)
   end
 
   @required_fields ~w(name ip)a
-  @optional_fields ~w(type status config groups tags)a
+  @optional_fields ~w(type status config tags)a
 
   def changeset(host, attrs) do
     host
@@ -24,28 +23,25 @@ defmodule TimelessUI.Poller.Host do
     |> unique_constraint(:name)
   end
 
-  @doc """
-  Returns true if the host belongs to the given group.
-  Groups are stored as `%{"group_key" => "group_value"}`.
-  """
-  def in_group?(%__MODULE__{groups: groups}, {key, value}) do
-    Map.get(groups, to_string(key)) == to_string(value)
+  @doc "Returns the list of tags as a list of trimmed strings."
+  def tags_list(%__MODULE__{tags: tags}) when is_binary(tags) do
+    tags
+    |> String.split(",", trim: true)
+    |> Enum.map(&String.trim/1)
   end
 
-  def in_group?(%__MODULE__{groups: groups}, group_name) when is_binary(group_name) do
-    Map.has_key?(groups, group_name)
+  def tags_list(%__MODULE__{}), do: []
+
+  @doc "Returns true if the host has the given tag."
+  def has_tag?(%__MODULE__{} = host, tag) when is_binary(tag) do
+    tag in tags_list(host)
   end
 
-  @doc """
-  Returns true if the host matches any of the given group criteria.
-  `group_criteria` is a map like `%{"region" => "us-east", "role" => "router"}`.
-  A host matches if it has at least one matching key-value pair.
-  """
-  def matches_any_group?(%__MODULE__{} = host, group_criteria) when is_map(group_criteria) do
-    Enum.any?(group_criteria, fn {key, value} ->
-      in_group?(host, {key, value})
-    end)
+  @doc "Returns true if the host has any of the given tags."
+  def has_any_tag?(%__MODULE__{} = host, tags) when is_list(tags) do
+    host_tags = tags_list(host)
+    Enum.any?(tags, &(&1 in host_tags))
   end
 
-  def matches_any_group?(%__MODULE__{}, criteria) when criteria in [nil, %{}], do: true
+  def has_any_tag?(%__MODULE__{}, _), do: true
 end
