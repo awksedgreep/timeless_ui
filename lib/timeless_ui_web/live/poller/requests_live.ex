@@ -2,6 +2,7 @@ defmodule TimelessUIWeb.PollerLive.Requests do
   use TimelessUIWeb, :live_view
 
   alias TimelessUI.Poller.{Requests, Request}
+  alias Ecto.Changeset
 
   @impl true
   def mount(_params, _session, socket) do
@@ -43,7 +44,6 @@ defmodule TimelessUIWeb.PollerLive.Requests do
             <tr>
               <th>Name</th>
               <th>Type</th>
-              <th>Groups</th>
               <th>Description</th>
               <th>Actions</th>
             </tr>
@@ -53,7 +53,6 @@ defmodule TimelessUIWeb.PollerLive.Requests do
               <tr>
                 <td class="font-medium">{request.name}</td>
                 <td><span class="badge badge-outline">{request.type}</span></td>
-                <td class="text-sm">{format_groups(request.groups)}</td>
                 <td class="text-sm text-base-content/70">{request.description || "—"}</td>
                 <td>
                   <div class="flex gap-1">
@@ -91,62 +90,50 @@ defmodule TimelessUIWeb.PollerLive.Requests do
           {if @editing, do: "Edit Request", else: "Add Request"}
         </h2>
         <form phx-submit="save_request">
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div class="form-control">
-              <label class="label"><span class="label-text">Name *</span></label>
+          <div class="grid grid-cols-2 gap-6 mb-6">
+            <div>
+              <div class="text-sm text-base-content/70 mb-2">Name *</div>
               <input
                 type="text"
                 name="request[name]"
-                value={Ecto.Changeset.get_field(@changeset, :name)}
+                value={Changeset.get_field(@changeset, :name)}
                 required
-                class="input input-bordered"
-                placeholder="e.g. ping-all"
+                class="input input-bordered w-full"
+                placeholder="ifX"
               />
             </div>
-            <div class="form-control">
-              <label class="label"><span class="label-text">Type *</span></label>
-              <select name="request[type]" class="select select-bordered" required>
+            <div>
+              <div class="text-sm text-base-content/70 mb-2">Type *</div>
+              <select name="request[type]" class="select select-bordered w-full" required>
                 <option value="">Select type...</option>
-                <%= for type <- TimelessUI.Poller.Request.valid_types() do %>
-                  <option
-                    value={type}
-                    selected={Ecto.Changeset.get_field(@changeset, :type) == type}
-                  >
+                <%= for type <- Request.valid_types() do %>
+                  <option value={type} selected={Changeset.get_field(@changeset, :type) == type}>
                     {type}
                   </option>
                 <% end %>
               </select>
             </div>
-            <div class="form-control sm:col-span-2">
-              <label class="label"><span class="label-text">Description</span></label>
-              <input
-                type="text"
-                name="request[description]"
-                value={Ecto.Changeset.get_field(@changeset, :description)}
-                class="input input-bordered"
-                placeholder="Optional description"
-              />
-            </div>
-            <div class="form-control sm:col-span-2">
-              <label class="label"><span class="label-text">Groups (JSON)</span></label>
-              <textarea
-                name="request[groups]"
-                class="textarea textarea-bordered font-mono text-sm"
-                rows="2"
-                placeholder={~s|{"role": "router"}|}
-              >{encode_json(Ecto.Changeset.get_field(@changeset, :groups))}</textarea>
-            </div>
-            <div class="form-control sm:col-span-2">
-              <label class="label"><span class="label-text">Config (JSON)</span></label>
-              <textarea
-                name="request[config]"
-                class="textarea textarea-bordered font-mono text-sm"
-                rows="4"
-                placeholder={~s|{"oids": [".1.3.6.1.2.1.1.3.0"]}|}
-              >{encode_json(Ecto.Changeset.get_field(@changeset, :config))}</textarea>
-            </div>
           </div>
-          <div class="card-actions justify-end mt-6">
+          <div class="mb-6">
+            <div class="text-sm text-base-content/70 mb-2">Description</div>
+            <input
+              type="text"
+              name="request[description]"
+              value={Changeset.get_field(@changeset, :description)}
+              class="input input-bordered w-full"
+              placeholder="Optional description"
+            />
+          </div>
+          <div class="mb-6">
+            <div class="text-sm text-base-content/70 mb-2">OIDs (one per line)</div>
+            <textarea
+              name="request[oids]"
+              class="textarea textarea-bordered font-mono text-sm w-full"
+              rows="4"
+              placeholder=".1.3.6.1.2.1.31.1.1\n.1.3.6.1.2.1.2.2.1"
+            >{oids_from_config(Changeset.get_field(@changeset, :config))}</textarea>
+          </div>
+          <div class="flex justify-end gap-2">
             <button type="button" phx-click="cancel_form" class="btn btn-ghost">Cancel</button>
             <button type="submit" class="btn btn-primary">
               {if @editing, do: "Update", else: "Create"}
@@ -158,18 +145,13 @@ defmodule TimelessUIWeb.PollerLive.Requests do
     """
   end
 
-  defp format_groups(nil), do: ""
-  defp format_groups(groups) when groups == %{}, do: ""
+  defp oids_from_config(nil), do: ""
+  defp oids_from_config(config) when config == %{}, do: ""
 
-  defp format_groups(groups) do
-    groups
-    |> Enum.map(fn {k, v} -> "#{k}=#{v}" end)
-    |> Enum.join(", ")
+  defp oids_from_config(config) do
+    oids = Map.get(config, "oids") || Map.get(config, :oids) || []
+    Enum.join(oids, "\n")
   end
-
-  defp encode_json(nil), do: ""
-  defp encode_json(val) when val == %{}, do: ""
-  defp encode_json(val), do: Jason.encode!(val, pretty: true)
 
   # --- Event Handlers ---
 
@@ -199,7 +181,16 @@ defmodule TimelessUIWeb.PollerLive.Requests do
   end
 
   def handle_event("save_request", %{"request" => params}, socket) do
-    params = parse_json_fields(params, ["groups", "config"])
+    oids =
+      (params["oids"] || "")
+      |> String.split("\n", trim: true)
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+
+    params =
+      params
+      |> Map.delete("oids")
+      |> Map.put("config", %{"oids" => oids})
 
     result =
       if socket.assigns.editing do
@@ -238,26 +229,5 @@ defmodule TimelessUIWeb.PollerLive.Requests do
       {:error, _} ->
         {:noreply, put_flash(socket, :error, "Failed to delete request.")}
     end
-  end
-
-  defp parse_json_fields(params, fields) do
-    Enum.reduce(fields, params, fn field, acc ->
-      case Map.get(acc, field) do
-        nil ->
-          acc
-
-        "" ->
-          Map.put(acc, field, %{})
-
-        str when is_binary(str) ->
-          case Jason.decode(str) do
-            {:ok, val} -> Map.put(acc, field, val)
-            {:error, _} -> acc
-          end
-
-        _ ->
-          acc
-      end
-    end)
   end
 end
