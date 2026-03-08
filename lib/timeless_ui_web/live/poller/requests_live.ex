@@ -83,6 +83,17 @@ defmodule TimelessUIWeb.PollerLive.Requests do
   end
 
   defp request_form(assigns) do
+    config = Changeset.get_field(assigns.changeset, :config) || %{}
+    type = Changeset.get_field(assigns.changeset, :type)
+    is_snmp = type in ~w(snmpget snmpwalk snmpbulkwalk)
+
+    assigns =
+      assigns
+      |> Map.put(:config, config)
+      |> Map.put(:is_snmp, is_snmp)
+      |> Map.put(:table_name, config["table"] || "")
+      |> Map.put(:community, config["community"] || "public")
+
     ~H"""
     <div class="card bg-base-200 mb-8">
       <div class="card-body">
@@ -124,14 +135,27 @@ defmodule TimelessUIWeb.PollerLive.Requests do
               placeholder="Optional description"
             />
           </div>
-          <div class="mb-6">
-            <div class="text-sm text-base-content/70 mb-2">OIDs (one per line)</div>
-            <textarea
-              name="request[oids]"
-              class="textarea textarea-bordered font-mono text-sm w-full"
-              rows="4"
-              placeholder=".1.3.6.1.2.1.31.1.1\n.1.3.6.1.2.1.2.2.1"
-            >{oids_from_config(Changeset.get_field(@changeset, :config))}</textarea>
+          <div :if={@is_snmp} class="grid grid-cols-2 gap-6 mb-6">
+            <div>
+              <div class="text-sm text-base-content/70 mb-2">SNMP Table</div>
+              <input
+                type="text"
+                name="request[table]"
+                value={@table_name}
+                class="input input-bordered w-full"
+                placeholder="ifXTable"
+              />
+            </div>
+            <div>
+              <div class="text-sm text-base-content/70 mb-2">Community</div>
+              <input
+                type="text"
+                name="request[community]"
+                value={@community}
+                class="input input-bordered w-full"
+                placeholder="public"
+              />
+            </div>
           </div>
           <div class="flex justify-end gap-2">
             <button type="button" phx-click="cancel_form" class="btn btn-ghost">Cancel</button>
@@ -143,14 +167,6 @@ defmodule TimelessUIWeb.PollerLive.Requests do
       </div>
     </div>
     """
-  end
-
-  defp oids_from_config(nil), do: ""
-  defp oids_from_config(config) when config == %{}, do: ""
-
-  defp oids_from_config(config) do
-    oids = Map.get(config, "oids") || Map.get(config, :oids) || []
-    Enum.join(oids, "\n")
   end
 
   # --- Event Handlers ---
@@ -181,16 +197,20 @@ defmodule TimelessUIWeb.PollerLive.Requests do
   end
 
   def handle_event("save_request", %{"request" => params}, socket) do
-    oids =
-      (params["oids"] || "")
-      |> String.split("\n", trim: true)
-      |> Enum.map(&String.trim/1)
-      |> Enum.reject(&(&1 == ""))
+    table = String.trim(params["table"] || "")
+    community = String.trim(params["community"] || "public")
+
+    config =
+      if table != "" do
+        %{"table" => table, "community" => community}
+      else
+        %{}
+      end
 
     params =
       params
-      |> Map.delete("oids")
-      |> Map.put("config", %{"oids" => oids})
+      |> Map.drop(["table", "community"])
+      |> Map.put("config", config)
 
     result =
       if socket.assigns.editing do
