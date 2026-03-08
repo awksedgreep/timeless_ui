@@ -658,11 +658,11 @@ body:has(.canvas-container) {
   bottom: 0;
   left: 0;
   right: 0;
-  height: 44px;
+  height: 48px;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
-  padding: 0 12px;
+  padding: 6px 12px 0;
   background: var(--toolbar-bg);
   border-top: 1px solid var(--toolbar-border);
   backdrop-filter: blur(12px);
@@ -722,6 +722,7 @@ body:has(.canvas-container) {
   outline: none;
   user-select: none;
   -webkit-user-select: none;
+  overflow: visible;
 }
 
 .timeline-bar__track:focus-visible {
@@ -789,6 +790,42 @@ body:has(.canvas-container) {
   white-space: nowrap;
   min-width: 64px;
   text-align: right;
+}
+
+.timeline-bar__ticks {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 100%;
+  pointer-events: none;
+}
+
+.timeline-bar__tick {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  width: 0;
+}
+
+.timeline-bar__tick::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 100%;
+  background: rgba(148, 163, 184, 0.2);
+}
+
+.timeline-bar__tick span {
+  position: absolute;
+  bottom: -13px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 8px;
+  color: rgba(148, 163, 184, 0.6);
+  white-space: nowrap;
 }
 
 /* Graph Element */
