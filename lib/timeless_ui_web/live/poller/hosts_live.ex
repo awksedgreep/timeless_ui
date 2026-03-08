@@ -44,7 +44,6 @@ defmodule TimelessUIWeb.PollerLive.Hosts do
             <tr>
               <th>Name</th>
               <th>IP</th>
-              <th>Type</th>
               <th>Status</th>
               <th>Tags</th>
               <th>Actions</th>
@@ -55,7 +54,6 @@ defmodule TimelessUIWeb.PollerLive.Hosts do
               <tr>
                 <td class="font-medium">{host.name}</td>
                 <td class="font-mono text-sm">{host.ip}</td>
-                <td>{host.type}</td>
                 <td><.status_badge status={host.status} /></td>
                 <td class="text-sm">{host.tags}</td>
                 <td>
@@ -89,10 +87,10 @@ defmodule TimelessUIWeb.PollerLive.Hosts do
         <h2 class="card-title mb-4">
           {if @editing, do: "Edit Host", else: "Add Host"}
         </h2>
-        <form phx-submit="save_host" class="space-y-4">
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
+        <form phx-submit="save_host">
+          <div class="grid grid-cols-2 gap-6 mb-6">
             <div>
-              <div class="text-sm text-base-content/70 mb-1.5">Name *</div>
+              <div class="text-sm text-base-content/70 mb-2">Name *</div>
               <input
                 type="text"
                 name="host[name]"
@@ -103,7 +101,7 @@ defmodule TimelessUIWeb.PollerLive.Hosts do
               />
             </div>
             <div>
-              <div class="text-sm text-base-content/70 mb-1.5">IP Address *</div>
+              <div class="text-sm text-base-content/70 mb-2">IP Address *</div>
               <input
                 type="text"
                 name="host[ip]"
@@ -113,46 +111,9 @@ defmodule TimelessUIWeb.PollerLive.Hosts do
                 placeholder="192.168.1.1"
               />
             </div>
-            <div>
-              <div class="text-sm text-base-content/70 mb-1.5">Type</div>
-              <select name="host[type]" class="select select-bordered w-full">
-                <option value="generic" selected={Changeset.get_field(@changeset, :type) == "generic"}>
-                  Generic
-                </option>
-                <option value="router" selected={Changeset.get_field(@changeset, :type) == "router"}>
-                  Router
-                </option>
-                <option value="switch" selected={Changeset.get_field(@changeset, :type) == "switch"}>
-                  Switch
-                </option>
-                <option value="server" selected={Changeset.get_field(@changeset, :type) == "server"}>
-                  Server
-                </option>
-                <option
-                  value="firewall"
-                  selected={Changeset.get_field(@changeset, :type) == "firewall"}
-                >
-                  Firewall
-                </option>
-              </select>
-            </div>
-            <div>
-              <div class="text-sm text-base-content/70 mb-1.5">Status</div>
-              <select name="host[status]" class="select select-bordered w-full">
-                <option value="active" selected={Changeset.get_field(@changeset, :status) == "active"}>
-                  Active
-                </option>
-                <option
-                  value="inactive"
-                  selected={Changeset.get_field(@changeset, :status) == "inactive"}
-                >
-                  Inactive
-                </option>
-              </select>
-            </div>
           </div>
-          <div>
-            <div class="text-sm text-base-content/70 mb-1.5">Tags</div>
+          <div class="mb-6">
+            <div class="text-sm text-base-content/70 mb-2">Tags</div>
             <input
               type="text"
               name="host[tags]"
@@ -161,7 +122,7 @@ defmodule TimelessUIWeb.PollerLive.Hosts do
               placeholder="production, critical, us-east"
             />
           </div>
-          <div class="flex justify-end gap-2 pt-2">
+          <div class="flex justify-end gap-2">
             <button type="button" phx-click="cancel_form" class="btn btn-ghost">Cancel</button>
             <button type="submit" class="btn btn-primary">
               {if @editing, do: "Update", else: "Create"}
