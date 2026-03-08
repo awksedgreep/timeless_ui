@@ -285,8 +285,7 @@ defmodule TimelessUIWeb.ScrapeTargetLive do
               class="btn btn-sm btn-ghost gap-1"
             >
               <span :if={!@show_advanced}>&#9654;</span>
-              <span :if={@show_advanced}>&#9660;</span>
-              Advanced Options
+              <span :if={@show_advanced}>&#9660;</span> Advanced Options
             </button>
           </div>
 
@@ -363,7 +362,8 @@ defmodule TimelessUIWeb.ScrapeTargetLive do
 
   @impl true
   def handle_event("show_add_form", _params, socket) do
-    {:noreply, assign(socket, show_form: true, editing: nil, form: default_form(), show_advanced: false)}
+    {:noreply,
+     assign(socket, show_form: true, editing: nil, form: default_form(), show_advanced: false)}
   end
 
   def handle_event("cancel_form", _params, socket) do

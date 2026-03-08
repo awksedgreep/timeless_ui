@@ -8,9 +8,7 @@ defmodule TimelessUI.Poller.SnmpKitStarter do
       {SnmpKit.SnmpMgr.Config, fn -> SnmpKit.SnmpMgr.Config.start_link([]) end},
       {SnmpKit.SnmpMgr.RequestIdGenerator,
        fn ->
-         SnmpKit.SnmpMgr.RequestIdGenerator.start_link(
-           name: SnmpKit.SnmpMgr.RequestIdGenerator
-         )
+         SnmpKit.SnmpMgr.RequestIdGenerator.start_link(name: SnmpKit.SnmpMgr.RequestIdGenerator)
        end},
       {SnmpKit.SnmpMgr.SocketManager,
        fn ->

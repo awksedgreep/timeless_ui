@@ -48,15 +48,60 @@ defmodule TimelessUI.SnmpFixtures do
 
     columns = [
       %{name: "ifName", column_id: 1, data_type: "string", description: "Interface name"},
-      %{name: "ifHCInOctets", column_id: 6, data_type: "counter64", description: "HC inbound octets"},
-      %{name: "ifHCInUcastPkts", column_id: 7, data_type: "counter64", description: "HC inbound unicast packets"},
-      %{name: "ifHCInMulticastPkts", column_id: 8, data_type: "counter64", description: "HC inbound multicast packets"},
-      %{name: "ifHCInBroadcastPkts", column_id: 9, data_type: "counter64", description: "HC inbound broadcast packets"},
-      %{name: "ifHCOutOctets", column_id: 10, data_type: "counter64", description: "HC outbound octets"},
-      %{name: "ifHCOutUcastPkts", column_id: 11, data_type: "counter64", description: "HC outbound unicast packets"},
-      %{name: "ifHCOutMulticastPkts", column_id: 12, data_type: "counter64", description: "HC outbound multicast packets"},
-      %{name: "ifHCOutBroadcastPkts", column_id: 13, data_type: "counter64", description: "HC outbound broadcast packets"},
-      %{name: "ifHighSpeed", column_id: 15, data_type: "gauge", description: "Interface speed in Mbps"},
+      %{
+        name: "ifHCInOctets",
+        column_id: 6,
+        data_type: "counter64",
+        description: "HC inbound octets"
+      },
+      %{
+        name: "ifHCInUcastPkts",
+        column_id: 7,
+        data_type: "counter64",
+        description: "HC inbound unicast packets"
+      },
+      %{
+        name: "ifHCInMulticastPkts",
+        column_id: 8,
+        data_type: "counter64",
+        description: "HC inbound multicast packets"
+      },
+      %{
+        name: "ifHCInBroadcastPkts",
+        column_id: 9,
+        data_type: "counter64",
+        description: "HC inbound broadcast packets"
+      },
+      %{
+        name: "ifHCOutOctets",
+        column_id: 10,
+        data_type: "counter64",
+        description: "HC outbound octets"
+      },
+      %{
+        name: "ifHCOutUcastPkts",
+        column_id: 11,
+        data_type: "counter64",
+        description: "HC outbound unicast packets"
+      },
+      %{
+        name: "ifHCOutMulticastPkts",
+        column_id: 12,
+        data_type: "counter64",
+        description: "HC outbound multicast packets"
+      },
+      %{
+        name: "ifHCOutBroadcastPkts",
+        column_id: 13,
+        data_type: "counter64",
+        description: "HC outbound broadcast packets"
+      },
+      %{
+        name: "ifHighSpeed",
+        column_id: 15,
+        data_type: "gauge",
+        description: "Interface speed in Mbps"
+      },
       %{name: "ifAlias", column_id: 18, data_type: "string", description: "Interface alias"}
     ]
 

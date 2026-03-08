@@ -17,8 +17,20 @@ defmodule TimelessUIWeb.UserLive.Admin do
         <div class="card bg-base-200">
           <div class="card-body">
             <h2 class="card-title">Create User</h2>
-            <.form for={@form} id="create_user_form" phx-submit="create" phx-change="validate" class="space-y-4">
-              <.input field={@form[:username]} type="text" label="Username" required phx-mounted={JS.focus()} />
+            <.form
+              for={@form}
+              id="create_user_form"
+              phx-submit="create"
+              phx-change="validate"
+              class="space-y-4"
+            >
+              <.input
+                field={@form[:username]}
+                type="text"
+                label="Username"
+                required
+                phx-mounted={JS.focus()}
+              />
               <.input field={@form[:password]} type="password" label="Password" required />
               <.input
                 field={@form[:role]}
@@ -43,9 +55,11 @@ defmodule TimelessUIWeb.UserLive.Admin do
             </thead>
             <tbody>
               <tr :for={user <- @users} id={"user-#{user.id}"}>
-                <td><%= user.username %></td>
-                <td><span class={["badge", user.role == "admin" && "badge-primary"]}><%= user.role %></span></td>
-                <td><%= Calendar.strftime(user.inserted_at, "%Y-%m-%d") %></td>
+                <td>{user.username}</td>
+                <td>
+                  <span class={["badge", user.role == "admin" && "badge-primary"]}>{user.role}</span>
+                </td>
+                <td>{Calendar.strftime(user.inserted_at, "%Y-%m-%d")}</td>
                 <td class="flex gap-2">
                   <button
                     phx-click="show_reset"
@@ -71,7 +85,7 @@ defmodule TimelessUIWeb.UserLive.Admin do
 
         <div :if={@reset_user} class="card bg-base-200">
           <div class="card-body">
-            <h2 class="card-title">Reset password for <%= @reset_user.username %></h2>
+            <h2 class="card-title">Reset password for {@reset_user.username}</h2>
             <.form for={to_form(%{}, as: "reset")} id="reset-form" phx-submit="reset_password">
               <input type="hidden" name="reset[user_id]" value={@reset_user.id} />
               <.input name="reset[password]" type="password" label="New password" required value="" />
@@ -131,7 +145,11 @@ defmodule TimelessUIWeb.UserLive.Admin do
     {:noreply, assign(socket, :reset_user, nil)}
   end
 
-  def handle_event("reset_password", %{"reset" => %{"user_id" => id, "password" => password}}, socket) do
+  def handle_event(
+        "reset_password",
+        %{"reset" => %{"user_id" => id, "password" => password}},
+        socket
+      ) do
     user = Accounts.get_user!(id)
 
     case Accounts.reset_user_password(user, password) do

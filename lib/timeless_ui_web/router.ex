@@ -52,8 +52,9 @@ defmodule TimelessUIWeb.Router do
   scope "/" do
     pipe_through [:browser, :require_authenticated_user]
 
-    live_canvas "/canvas",
+    live_canvas("/canvas",
       on_mount: [{TimelessUIWeb.UserAuth, :require_authenticated}]
+    )
   end
 
   scope "/", TimelessUIWeb do
