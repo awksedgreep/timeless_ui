@@ -23,6 +23,12 @@
   --panel-width: 280px;
 }
 
+/* Fix DaisyUI select vertical alignment */
+.select {
+  display: flex;
+  align-items: center;
+}
+
 /* Canvas page: prevent scrollbars, full viewport */
 body:has(.canvas-container) {
   overflow: hidden;
