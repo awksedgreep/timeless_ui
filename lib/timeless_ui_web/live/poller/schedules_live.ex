@@ -1,7 +1,8 @@
 defmodule TimelessUIWeb.PollerLive.Schedules do
   use TimelessUIWeb, :live_view
 
-  alias TimelessUI.Poller.{Schedules, Schedule}
+  alias TimelessUI.Poller.{Schedules, Schedule, Hosts, Requests}
+  alias Ecto.Changeset
 
   @impl true
   def mount(_params, _session, socket) do
@@ -10,6 +11,8 @@ defmodule TimelessUIWeb.PollerLive.Schedules do
      |> assign(
        page_title: "Poller Schedules",
        schedules: Schedules.list_schedules(),
+       hosts: Hosts.list_hosts(),
+       requests: Requests.list_requests(),
        show_form: false,
        editing: nil,
        changeset: Schedules.change_schedule(%Schedule{})
@@ -30,7 +33,13 @@ defmodule TimelessUIWeb.PollerLive.Schedules do
         </button>
       </div>
 
-      <.schedule_form :if={@show_form} changeset={@changeset} editing={@editing} />
+      <.schedule_form
+        :if={@show_form}
+        changeset={@changeset}
+        editing={@editing}
+        hosts={@hosts}
+        requests={@requests}
+      />
 
       <div :if={@schedules == []} class="text-center text-base-content/60 py-16">
         <p class="text-lg mb-4">No schedules configured</p>
@@ -43,8 +52,7 @@ defmodule TimelessUIWeb.PollerLive.Schedules do
             <tr>
               <th>Name</th>
               <th>Cron</th>
-              <th>Host Groups</th>
-              <th>Request Groups</th>
+              <th>Host Tags</th>
               <th>Enabled</th>
               <th>Actions</th>
             </tr>
@@ -54,13 +62,15 @@ defmodule TimelessUIWeb.PollerLive.Schedules do
               <tr>
                 <td class="font-medium">{schedule.name}</td>
                 <td class="font-mono text-sm">{schedule.cron}</td>
-                <td class="text-sm">{format_groups(schedule.host_groups)}</td>
-                <td class="text-sm">{format_groups(schedule.request_groups)}</td>
+                <td class="text-sm">{format_host_tags(schedule.host_groups)}</td>
                 <td>
                   <button
                     phx-click="toggle_enabled"
                     phx-value-id={schedule.id}
-                    class={["btn btn-xs", if(schedule.enabled, do: "btn-success", else: "btn-ghost")]}
+                    class={[
+                      "btn btn-xs",
+                      if(schedule.enabled, do: "btn-success", else: "btn-ghost")
+                    ]}
                   >
                     {if schedule.enabled, do: "Enabled", else: "Disabled"}
                   </button>
@@ -94,6 +104,10 @@ defmodule TimelessUIWeb.PollerLive.Schedules do
   end
 
   defp schedule_form(assigns) do
+    host_groups = Changeset.get_field(assigns.changeset, :host_groups) || %{}
+    host_tags = Map.get(host_groups, "tags") || []
+    assigns = Map.put(assigns, :host_tags_str, Enum.join(host_tags, ", "))
+
     ~H"""
     <div class="card bg-base-200 mb-8">
       <div class="card-body">
@@ -101,62 +115,54 @@ defmodule TimelessUIWeb.PollerLive.Schedules do
           {if @editing, do: "Edit Schedule", else: "Add Schedule"}
         </h2>
         <form phx-submit="save_schedule">
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div class="form-control">
-              <label class="label"><span class="label-text">Name *</span></label>
+          <div class="grid grid-cols-2 gap-6 mb-6">
+            <div>
+              <div class="text-sm text-base-content/70 mb-2">Name *</div>
               <input
                 type="text"
                 name="schedule[name]"
-                value={Ecto.Changeset.get_field(@changeset, :name)}
+                value={Changeset.get_field(@changeset, :name)}
                 required
-                class="input input-bordered"
-                placeholder="e.g. every-5m-ping"
+                class="input input-bordered w-full"
+                placeholder="every-5m-snmp"
               />
             </div>
-            <div class="form-control">
-              <label class="label"><span class="label-text">Cron Expression *</span></label>
+            <div>
+              <div class="text-sm text-base-content/70 mb-2">Cron Expression *</div>
               <input
                 type="text"
                 name="schedule[cron]"
-                value={Ecto.Changeset.get_field(@changeset, :cron)}
+                value={Changeset.get_field(@changeset, :cron)}
                 required
-                class="input input-bordered font-mono"
+                class="input input-bordered font-mono w-full"
                 placeholder="*/5 * * * *"
               />
             </div>
-            <div class="form-control sm:col-span-2">
-              <label class="label"><span class="label-text">Host Groups (JSON)</span></label>
-              <textarea
-                name="schedule[host_groups]"
-                class="textarea textarea-bordered font-mono text-sm"
-                rows="2"
-                placeholder={~s|{"region": "us-east"}|}
-              >{encode_json(Ecto.Changeset.get_field(@changeset, :host_groups))}</textarea>
-            </div>
-            <div class="form-control sm:col-span-2">
-              <label class="label"><span class="label-text">Request Groups (JSON)</span></label>
-              <textarea
-                name="schedule[request_groups]"
-                class="textarea textarea-bordered font-mono text-sm"
-                rows="2"
-                placeholder={~s|{"role": "router"}|}
-              >{encode_json(Ecto.Changeset.get_field(@changeset, :request_groups))}</textarea>
-            </div>
-            <div class="form-control">
-              <label class="label cursor-pointer justify-start gap-3">
-                <input type="hidden" name="schedule[enabled]" value="false" />
-                <input
-                  type="checkbox"
-                  name="schedule[enabled]"
-                  value="true"
-                  checked={Ecto.Changeset.get_field(@changeset, :enabled)}
-                  class="checkbox"
-                />
-                <span class="label-text">Enabled</span>
-              </label>
-            </div>
           </div>
-          <div class="card-actions justify-end mt-6">
+          <div class="mb-6">
+            <div class="text-sm text-base-content/70 mb-2">
+              Host Tags <span class="text-base-content/40">(comma-separated, blank = all hosts)</span>
+            </div>
+            <input
+              type="text"
+              name="schedule[host_tags]"
+              value={@host_tags_str}
+              class="input input-bordered w-full"
+              placeholder="production, us-east"
+            />
+          </div>
+          <div class="flex items-center gap-3 mb-6">
+            <input type="hidden" name="schedule[enabled]" value="false" />
+            <input
+              type="checkbox"
+              name="schedule[enabled]"
+              value="true"
+              checked={Changeset.get_field(@changeset, :enabled)}
+              class="checkbox"
+            />
+            <span class="text-sm">Enabled</span>
+          </div>
+          <div class="flex justify-end gap-2">
             <button type="button" phx-click="cancel_form" class="btn btn-ghost">Cancel</button>
             <button type="submit" class="btn btn-primary">
               {if @editing, do: "Update", else: "Create"}
@@ -168,18 +174,13 @@ defmodule TimelessUIWeb.PollerLive.Schedules do
     """
   end
 
-  defp format_groups(nil), do: ""
-  defp format_groups(groups) when groups == %{}, do: ""
+  defp format_host_tags(nil), do: "all"
+  defp format_host_tags(groups) when groups == %{}, do: "all"
 
-  defp format_groups(groups) do
-    groups
-    |> Enum.map(fn {k, v} -> "#{k}=#{v}" end)
-    |> Enum.join(", ")
+  defp format_host_tags(groups) do
+    tags = Map.get(groups, "tags") || []
+    if tags == [], do: "all", else: Enum.join(tags, ", ")
   end
-
-  defp encode_json(nil), do: ""
-  defp encode_json(val) when val == %{}, do: ""
-  defp encode_json(val), do: Jason.encode!(val, pretty: true)
 
   # --- Event Handlers ---
 
@@ -209,8 +210,20 @@ defmodule TimelessUIWeb.PollerLive.Schedules do
   end
 
   def handle_event("save_schedule", %{"schedule" => params}, socket) do
-    params = parse_json_fields(params, ["host_groups", "request_groups"])
-    params = parse_boolean_fields(params, ["enabled"])
+    host_tags =
+      (params["host_tags"] || "")
+      |> String.split(",", trim: true)
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+
+    host_groups = if host_tags == [], do: %{}, else: %{"tags" => host_tags}
+
+    params =
+      params
+      |> Map.delete("host_tags")
+      |> Map.put("host_groups", host_groups)
+      |> Map.put("request_groups", %{})
+      |> parse_boolean_fields(["enabled"])
 
     result =
       if socket.assigns.editing do
@@ -268,27 +281,6 @@ defmodule TimelessUIWeb.PollerLive.Schedules do
       {:error, _} ->
         {:noreply, put_flash(socket, :error, "Failed to delete schedule.")}
     end
-  end
-
-  defp parse_json_fields(params, fields) do
-    Enum.reduce(fields, params, fn field, acc ->
-      case Map.get(acc, field) do
-        nil ->
-          acc
-
-        "" ->
-          Map.put(acc, field, %{})
-
-        str when is_binary(str) ->
-          case Jason.decode(str) do
-            {:ok, val} -> Map.put(acc, field, val)
-            {:error, _} -> acc
-          end
-
-        _ ->
-          acc
-      end
-    end)
   end
 
   defp parse_boolean_fields(params, fields) do
