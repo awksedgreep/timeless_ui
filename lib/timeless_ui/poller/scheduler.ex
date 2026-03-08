@@ -86,7 +86,7 @@ defmodule TimelessUI.Poller.Scheduler do
 
   defp resolve_jobs(schedule) do
     host_tags = Map.get(schedule.host_groups || %{}, "tags", [])
-    request_groups = schedule.request_groups || %{}
+    request_names = Map.get(schedule.request_groups || %{}, "names", [])
 
     hosts =
       if host_tags == [] do
@@ -96,10 +96,10 @@ defmodule TimelessUI.Poller.Scheduler do
       end
 
     requests =
-      if request_groups == %{} do
+      if request_names == [] do
         Requests.list_requests()
       else
-        Requests.list_requests_by_group(request_groups)
+        Requests.list_requests_by_names(request_names)
       end
 
     for host <- hosts, request <- requests do

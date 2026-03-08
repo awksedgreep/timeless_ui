@@ -53,6 +53,7 @@ defmodule TimelessUIWeb.PollerLive.Schedules do
               <th>Name</th>
               <th>Cron</th>
               <th>Host Tags</th>
+              <th>Requests</th>
               <th>Enabled</th>
               <th>Actions</th>
             </tr>
@@ -63,6 +64,7 @@ defmodule TimelessUIWeb.PollerLive.Schedules do
                 <td class="font-medium">{schedule.name}</td>
                 <td class="font-mono text-sm">{schedule.cron}</td>
                 <td class="text-sm">{format_host_tags(schedule.host_groups)}</td>
+                <td class="text-sm">{format_request_names(schedule.request_groups)}</td>
                 <td>
                   <button
                     phx-click="toggle_enabled"
@@ -105,8 +107,14 @@ defmodule TimelessUIWeb.PollerLive.Schedules do
 
   defp schedule_form(assigns) do
     host_groups = Changeset.get_field(assigns.changeset, :host_groups) || %{}
+    request_groups = Changeset.get_field(assigns.changeset, :request_groups) || %{}
     host_tags = Map.get(host_groups, "tags") || []
-    assigns = Map.put(assigns, :host_tags_str, Enum.join(host_tags, ", "))
+    request_names = Map.get(request_groups, "names") || []
+
+    assigns =
+      assigns
+      |> Map.put(:host_tags_str, Enum.join(host_tags, ", "))
+      |> Map.put(:request_names_str, Enum.join(request_names, ", "))
 
     ~H"""
     <div class="card bg-base-200 mb-8">
@@ -139,17 +147,31 @@ defmodule TimelessUIWeb.PollerLive.Schedules do
               />
             </div>
           </div>
-          <div class="mb-6">
-            <div class="text-sm text-base-content/70 mb-2">
-              Host Tags <span class="text-base-content/40">(comma-separated, blank = all hosts)</span>
+          <div class="grid grid-cols-2 gap-6 mb-6">
+            <div>
+              <div class="text-sm text-base-content/70 mb-2">
+                Host Tags <span class="text-base-content/40">(blank = all)</span>
+              </div>
+              <input
+                type="text"
+                name="schedule[host_tags]"
+                value={@host_tags_str}
+                class="input input-bordered w-full"
+                placeholder="production, us-east"
+              />
             </div>
-            <input
-              type="text"
-              name="schedule[host_tags]"
-              value={@host_tags_str}
-              class="input input-bordered w-full"
-              placeholder="production, us-east"
-            />
+            <div>
+              <div class="text-sm text-base-content/70 mb-2">
+                Requests <span class="text-base-content/40">(blank = all)</span>
+              </div>
+              <input
+                type="text"
+                name="schedule[request_names]"
+                value={@request_names_str}
+                class="input input-bordered w-full"
+                placeholder="ifX, sysUptime"
+              />
+            </div>
           </div>
           <div class="flex items-center gap-3 mb-6">
             <input type="hidden" name="schedule[enabled]" value="false" />
@@ -180,6 +202,14 @@ defmodule TimelessUIWeb.PollerLive.Schedules do
   defp format_host_tags(groups) do
     tags = Map.get(groups, "tags") || []
     if tags == [], do: "all", else: Enum.join(tags, ", ")
+  end
+
+  defp format_request_names(nil), do: "all"
+  defp format_request_names(groups) when groups == %{}, do: "all"
+
+  defp format_request_names(groups) do
+    names = Map.get(groups, "names") || []
+    if names == [], do: "all", else: Enum.join(names, ", ")
   end
 
   # --- Event Handlers ---
@@ -216,13 +246,20 @@ defmodule TimelessUIWeb.PollerLive.Schedules do
       |> Enum.map(&String.trim/1)
       |> Enum.reject(&(&1 == ""))
 
+    request_names =
+      (params["request_names"] || "")
+      |> String.split(",", trim: true)
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+
     host_groups = if host_tags == [], do: %{}, else: %{"tags" => host_tags}
+    request_groups = if request_names == [], do: %{}, else: %{"names" => request_names}
 
     params =
       params
-      |> Map.delete("host_tags")
+      |> Map.drop(["host_tags", "request_names"])
       |> Map.put("host_groups", host_groups)
-      |> Map.put("request_groups", %{})
+      |> Map.put("request_groups", request_groups)
       |> parse_boolean_fields(["enabled"])
 
     result =

@@ -8,13 +8,8 @@ defmodule TimelessUI.Poller.Requests do
     Repo.all(from r in Request, order_by: [asc: r.name])
   end
 
-  def list_requests_by_group(group_criteria) when is_map(group_criteria) do
-    list_requests()
-    |> Enum.filter(fn request ->
-      Enum.any?(group_criteria, fn {key, value} ->
-        Map.get(request.groups, to_string(key)) == to_string(value)
-      end)
-    end)
+  def list_requests_by_names(names) when is_list(names) do
+    Repo.all(from r in Request, where: r.name in ^names, order_by: [asc: r.name])
   end
 
   def get_request!(id), do: Repo.get!(Request, id)
