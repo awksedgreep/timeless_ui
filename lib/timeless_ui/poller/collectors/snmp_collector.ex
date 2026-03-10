@@ -95,7 +95,7 @@ defmodule TimelessUI.Poller.Collectors.SnmpCollector do
         max_rep = get_config(config, :max_repetitions, 40)
         community = get_config(config, :community, "public")
         port = get_config(config, :port, nil) || get_host_config(host, :port)
-        ts = System.system_time(:millisecond)
+        ts = System.system_time(:second)
 
         base_opts =
           [
@@ -107,7 +107,9 @@ defmodule TimelessUI.Poller.Collectors.SnmpCollector do
 
         case execute_table_walk(host, table, base_opts, max_rep) do
           {:ok, varbinds} ->
-            metrics = build_table_metrics(host.name, table, varbinds, ts)
+            # Walk foreign tables for cross-table enrichment
+            foreign_table_data = walk_foreign_tables(host, table, base_opts, max_rep)
+            metrics = build_table_metrics(host.name, table, varbinds, foreign_table_data, ts)
             {:ok, metrics}
 
           {:error, reason} ->
@@ -147,36 +149,75 @@ defmodule TimelessUI.Poller.Collectors.SnmpCollector do
     end
   end
 
-  defp build_table_metrics(host_name, table, varbinds, ts) do
-    # Step 1: Parse varbinds and group by index key
-    indexed_data =
-      Enum.reduce(varbinds, %{}, fn vb, acc ->
-        oid = to_string(vb[:oid] || vb["oid"])
+  # Walk required foreign tables and return their indexed data.
+  # Returns %{table_name => %{index_key => %{col_name => value, ...}}}
+  defp walk_foreign_tables(host, table, base_opts, max_rep) do
+    required = TableLoader.get_required_tables(table)
 
-        case TableLoader.parse_oid(oid, table) do
-          {:ok, %{column_id: column_id, indices: indices}} ->
-            case TableLoader.get_column(table, column_id) do
-              nil ->
-                acc
+    if required == [] do
+      %{}
+    else
+      Logger.debug("Walking #{length(required)} foreign table(s) for #{table.name}: #{inspect(required)}")
 
-              column ->
-                index_key = TableLoader.build_index_key(indices)
-                value = extract_table_value(vb, column)
+      Map.new(required, fn table_name ->
+        case TableLoader.get_table(table_name) do
+          nil ->
+            Logger.warning("Foreign table '#{table_name}' not found")
+            {table_name, %{}}
 
-                acc
-                |> Map.put_new(index_key, %{})
-                |> put_in([index_key, column.name], value)
-                |> put_in([index_key, :_indices], indices)
+          foreign_table ->
+            case execute_table_walk(host, foreign_table, base_opts, max_rep) do
+              {:ok, varbinds} ->
+                {table_name, parse_varbinds_to_indexed_data(foreign_table, varbinds)}
+
+              {:error, reason} ->
+                Logger.warning("Failed to walk foreign table '#{table_name}': #{inspect(reason)}")
+                {table_name, %{}}
             end
-
-          {:error, _} ->
-            acc
         end
       end)
+    end
+  end
+
+  # Parse raw varbinds into indexed data for any table.
+  # Returns %{index_key => %{col_name => value, :_indices => %{...}}}
+  defp parse_varbinds_to_indexed_data(table, varbinds) do
+    Enum.reduce(varbinds, %{}, fn vb, acc ->
+      oid = to_string(vb[:oid] || vb["oid"])
+
+      case TableLoader.parse_oid(oid, table) do
+        {:ok, %{column_id: column_id, indices: indices}} ->
+          case TableLoader.get_column(table, column_id) do
+            nil ->
+              acc
+
+            column ->
+              index_key = TableLoader.build_index_key(indices)
+              value = extract_table_value(vb, column)
+
+              acc
+              |> Map.put_new(index_key, %{})
+              |> put_in([index_key, column.name], value)
+              |> put_in([index_key, :_indices], indices)
+          end
+
+        {:error, _} ->
+          acc
+      end
+    end)
+  end
+
+  defp build_table_metrics(host_name, table, varbinds, foreign_table_data, ts) do
+    # Step 1: Parse varbinds and group by index key
+    indexed_data = parse_varbinds_to_indexed_data(table, varbinds)
 
     # Step 2: For each row, emit one metric per metric-column with labels
     Enum.flat_map(indexed_data, fn {_index_key, row_data} ->
-      base_labels = build_base_labels(host_name, table, row_data)
+      # Resolve foreign key labels
+      fk_labels = TableLoader.enrich_with_foreign_keys(row_data, table, foreign_table_data)
+
+      # Build base labels with FK enrichment merged in
+      base_labels = build_base_labels(host_name, table, row_data, fk_labels)
 
       table
       |> TableLoader.get_metric_columns()
@@ -205,7 +246,7 @@ defmodule TimelessUI.Poller.Collectors.SnmpCollector do
     end
   end
 
-  defp build_base_labels(host_name, table, row_data) do
+  defp build_base_labels(host_name, table, row_data, fk_labels) do
     # Start with index values
     indices = Map.get(row_data, :_indices, %{})
 
@@ -223,8 +264,10 @@ defmodule TimelessUI.Poller.Collectors.SnmpCollector do
         end
       end)
 
+    # Combine indices, label data, and foreign key labels
     index_labels
     |> Map.merge(label_data)
+    |> Map.merge(fk_labels)
     |> Map.put("host", host_name)
   end
 
@@ -260,7 +303,7 @@ defmodule TimelessUI.Poller.Collectors.SnmpCollector do
     oids = get_config(config, :oids, [])
     port = get_config(config, :port, nil) || get_host_config(host, :port)
     oid_names = get_config(config, :oid_names, %{})
-    ts = System.system_time(:millisecond)
+    ts = System.system_time(:second)
 
     base_target = host.ip || host.name
     target = if port, do: "#{base_target}:#{port}", else: base_target

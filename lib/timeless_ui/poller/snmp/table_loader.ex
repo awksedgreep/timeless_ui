@@ -92,6 +92,69 @@ defmodule TimelessUI.Poller.Snmp.TableLoader do
     |> Enum.join(".")
   end
 
+  @doc """
+  Get required table names (dependencies) for this table.
+  Scans columns for foreign_table references and returns unique table names.
+  """
+  def get_required_tables(table) do
+    table.columns
+    |> Map.values()
+    |> Enum.filter(& &1.foreign_table)
+    |> Enum.map(& &1.foreign_table)
+    |> Enum.uniq()
+  end
+
+  @doc """
+  Get columns that have foreign key references.
+  """
+  def get_foreign_keys(table) do
+    table.columns
+    |> Map.values()
+    |> Enum.filter(& &1.foreign_table)
+  end
+
+  @doc """
+  Enrich row data with foreign key lookups.
+
+  Returns a map of label_name => value for each resolved foreign key.
+  `foreign_table_data` is `%{table_name => %{index_key => %{col_name => value, ...}}}`.
+  """
+  def enrich_with_foreign_keys(row_data, table, foreign_table_data) do
+    fk_columns = get_foreign_keys(table)
+
+    Enum.reduce(fk_columns, %{}, fn fk_col, labels ->
+      # Determine the lookup key into the foreign table
+      lookup_key =
+        if fk_col.is_index do
+          # Index column — use the row's matching index value
+          indices = Map.get(row_data, :_indices, %{})
+
+          case Map.get(indices, fk_col.name) do
+            nil -> nil
+            val -> to_string(val)
+          end
+        else
+          # Data column — the column's value IS the foreign index
+          case Map.get(row_data, fk_col.name) do
+            nil -> nil
+            val when is_float(val) -> to_string(trunc(val))
+            val -> to_string(val)
+          end
+        end
+
+      if lookup_key do
+        foreign_row = get_in(foreign_table_data, [fk_col.foreign_table, lookup_key])
+
+        case foreign_row && Map.get(foreign_row, fk_col.foreign_column) do
+          nil -> labels
+          value -> Map.put(labels, fk_col.foreign_column, to_string(value))
+        end
+      else
+        labels
+      end
+    end)
+  end
+
   # Private helpers
 
   defp to_table_def(%Table{} = table) do
@@ -115,6 +178,9 @@ defmodule TimelessUI.Poller.Snmp.TableLoader do
       type: col.data_type,
       is_metric: col.data_type in @metric_types,
       is_label: col.data_type in @label_types,
+      is_index: col.is_index,
+      foreign_table: col.foreign_table,
+      foreign_column: col.foreign_column,
       description: col.description
     }
   end
