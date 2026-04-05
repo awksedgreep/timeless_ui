@@ -2,8 +2,8 @@ defmodule TimelessUI.CanvasesTest do
   use TimelessUI.DataCase
 
   alias TimelessUI.Canvases
-  alias TimelessUI.Canvas
-  alias TimelessUI.Canvas.Serializer
+  alias TimelessCanvas.Canvas
+  alias TimelessCanvas.Canvas.Serializer
 
   import TimelessUI.AccountsFixtures
 

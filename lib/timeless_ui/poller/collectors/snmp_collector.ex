@@ -157,7 +157,9 @@ defmodule TimelessUI.Poller.Collectors.SnmpCollector do
     if required == [] do
       %{}
     else
-      Logger.debug("Walking #{length(required)} foreign table(s) for #{table.name}: #{inspect(required)}")
+      Logger.debug(
+        "Walking #{length(required)} foreign table(s) for #{table.name}: #{inspect(required)}"
+      )
 
       Map.new(required, fn table_name ->
         case TableLoader.get_table(table_name) do

@@ -61,6 +61,7 @@ defmodule TimelessUI.Poller.MetricsWriter do
 
     :ok
   end
+
   defp metrics_store do
     config = Application.get_env(:timeless_ui, :poller, [])
     Keyword.get(config, :metrics_store, :timeless_metrics)

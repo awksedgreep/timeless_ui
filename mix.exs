@@ -4,7 +4,7 @@ defmodule TimelessUI.MixProject do
   def project do
     [
       app: :timeless_ui,
-      version: "0.9.3",
+      version: "0.9.4",
       elixir: "~> 1.15",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
@@ -40,6 +40,7 @@ defmodule TimelessUI.MixProject do
   # Type `mix help deps` for examples and options.
   defp deps do
     [
+      {:tidewave, "~> 0.5", only: :dev},
       {:bcrypt_elixir, "~> 3.0"},
       {:phoenix, "~> 1.8.3"},
       {:phoenix_ecto, "~> 4.5"},
@@ -65,7 +66,7 @@ defmodule TimelessUI.MixProject do
       {:dns_cluster, "~> 0.2.0"},
       {:swoosh, "~> 1.4"},
       {:bandit, "~> 1.5"},
-      {:timeless_canvas, github: "awksedgreep/timeless_canvas", tag: "v0.4.0"},
+      {:timeless_canvas, github: "awksedgreep/timeless_canvas", tag: "v0.4.2"},
       {:opentelemetry_phoenix, "~> 2.0"},
       {:opentelemetry_bandit, "~> 0.3.0"},
       {:opentelemetry_ecto, "~> 1.2"},

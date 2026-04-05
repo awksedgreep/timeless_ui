@@ -3,7 +3,7 @@ defmodule TimelessUI.Canvases.PolicyTest do
 
   alias TimelessUI.Canvases
   alias TimelessUI.Canvases.Policy
-  alias TimelessUI.Canvas.Serializer
+  alias TimelessCanvas.Canvas.Serializer
   alias TimelessUI.Canvas
 
   import TimelessUI.AccountsFixtures

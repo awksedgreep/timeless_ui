@@ -1,7 +1,7 @@
 defmodule TimelessUI.Canvas.ElementTest do
   use ExUnit.Case, async: true
 
-  alias TimelessUI.Canvas.Element
+  alias TimelessCanvas.Canvas.Element
 
   describe "move/3" do
     test "moves element by dx, dy" do
@@ -132,8 +132,9 @@ defmodule TimelessUI.Canvas.ElementTest do
       assert el.color == "#10b981"
     end
 
-    test "has level and metadata_filter meta fields" do
+    test "has host, level, and metadata_filter meta fields" do
       fields = Element.meta_fields(:log_stream)
+      assert "host" in fields
       assert "level" in fields
       assert "metadata_filter" in fields
     end
@@ -147,8 +148,9 @@ defmodule TimelessUI.Canvas.ElementTest do
       assert el.color == "#8b5cf6"
     end
 
-    test "has service, name, and kind meta fields" do
+    test "has host, service, name, and kind meta fields" do
       fields = Element.meta_fields(:trace_stream)
+      assert "host" in fields
       assert "service" in fields
       assert "name" in fields
       assert "kind" in fields

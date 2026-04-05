@@ -1,8 +1,8 @@
 defmodule TimelessUI.Canvas.HistoryTest do
   use ExUnit.Case, async: true
 
-  alias TimelessUI.Canvas
-  alias TimelessUI.Canvas.History
+  alias TimelessCanvas.Canvas
+  alias TimelessCanvas.Canvas.History
 
   defp canvas_with_element(label) do
     canvas = Canvas.new()

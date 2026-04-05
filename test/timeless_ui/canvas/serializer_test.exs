@@ -1,8 +1,8 @@
 defmodule TimelessUI.Canvas.SerializerTest do
   use ExUnit.Case, async: true
 
-  alias TimelessUI.Canvas
-  alias TimelessUI.Canvas.Serializer
+  alias TimelessCanvas.Canvas
+  alias TimelessCanvas.Canvas.Serializer
 
   describe "encode/1 and decode/1 roundtrip" do
     test "empty canvas roundtrips" do

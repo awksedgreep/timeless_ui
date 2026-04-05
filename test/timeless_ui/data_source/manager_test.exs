@@ -1,7 +1,7 @@
 defmodule TimelessUI.DataSource.ManagerTest do
   use ExUnit.Case, async: true
 
-  alias TimelessUI.Canvas.Element
+  alias TimelessCanvas.Canvas.Element
   alias TimelessUI.DataSource.Manager
 
   # Use a unique name per test to avoid conflicts

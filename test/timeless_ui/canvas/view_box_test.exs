@@ -1,7 +1,7 @@
 defmodule TimelessUI.Canvas.ViewBoxTest do
   use ExUnit.Case, async: true
 
-  alias TimelessUI.Canvas.ViewBox
+  alias TimelessCanvas.Canvas.ViewBox
 
   describe "to_string/1" do
     test "formats viewbox for SVG attribute" do

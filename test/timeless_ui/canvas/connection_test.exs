@@ -1,7 +1,7 @@
 defmodule TimelessUI.Canvas.ConnectionTest do
   use ExUnit.Case, async: true
 
-  alias TimelessUI.Canvas
+  alias TimelessCanvas.Canvas
 
   defp canvas_with_two_elements do
     canvas = Canvas.new(snap_to_grid: false)
