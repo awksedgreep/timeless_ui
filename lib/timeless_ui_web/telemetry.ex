@@ -8,10 +8,13 @@ defmodule TimelessUIWeb.Telemetry do
 
   @impl true
   def init(_arg) do
+    TimelessUI.Observability.Identity.ensure_opentelemetry_resource()
+
     # Attach OpenTelemetry instrumentation for Phoenix, Bandit, and Ecto
     OpentelemetryBandit.setup()
     OpentelemetryPhoenix.setup(adapter: :bandit)
     OpentelemetryEcto.setup([:timeless_ui, :repo])
+    TimelessUI.Observability.LoggerPropagator.attach()
 
     children = [
       # Telemetry poller will execute the given period measurements
