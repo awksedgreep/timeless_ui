@@ -1,8 +1,6 @@
 defmodule TimelessUI.Observability.LoggerPropagator do
   @moduledoc false
 
-  require Logger
-
   @handler_id "timeless-ui-logger-propagator"
 
   def attach do

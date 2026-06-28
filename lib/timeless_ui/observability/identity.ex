@@ -132,7 +132,14 @@ defmodule TimelessUI.Observability.Identity do
   end
 
   defp get_nested_value([segment | rest], resource) when is_list(resource) do
-    case Keyword.get(resource, String.to_atom(segment)) || Keyword.get(resource, segment) do
+    value =
+      Keyword.get(resource, String.to_atom(segment)) ||
+        case List.keyfind(resource, segment, 0) do
+          {^segment, value} -> value
+          nil -> nil
+        end
+
+    case value do
       nil -> nil
       value -> get_nested_value(rest, value)
     end

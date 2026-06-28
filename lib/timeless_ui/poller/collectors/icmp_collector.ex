@@ -23,7 +23,7 @@ defmodule TimelessUI.Poller.Collectors.IcmpCollector do
     case RawPing.ping_stats(ip, count: count, timeout: timeout) do
       {:ok, stats} ->
         labels = build_labels(host)
-        success = if stats.received > 0, do: 1, else: 0
+        success = if stats.success_count > 0, do: 1, else: 0
         rtt = stats.avg || 0.0
 
         metrics = [

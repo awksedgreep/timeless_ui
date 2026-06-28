@@ -1,8 +1,6 @@
 defmodule TimelessUI.Poller.SnmpKitStarter do
   @moduledoc "Ensures SnmpKit components are started before SNMP operations."
 
-  require Logger
-
   def ensure_started do
     components = [
       {SnmpKit.SnmpMgr.Config, fn -> SnmpKit.SnmpMgr.Config.start_link([]) end},
