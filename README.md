@@ -79,38 +79,29 @@ The scheduler ticks every minute, evaluates cron expressions, resolves host x re
 | `:icmp_count` | `1` | Number of pings per host |
 | `:metrics_store` | `:timeless_metrics` | TimelessMetrics store name |
 
-## Experimental Rust metrics data plane
+## Rust/libSQL telemetry data plane
 
-The metrics API POC can run as a separately supervised Rust OS process. This
-mode is opt-in: Phoenix owns sessions, Canvas, dashboards, poller policy, and
-product data, while the child process exclusively owns the telemetry database.
-Only Canvas's historical graph query is routed through this boundary today.
+The production Stack starts three signal-specific Rust OS processes for
+metrics, logs, and traces. Each process exclusively owns its `timeless-libsql`
+database; Phoenix owns sessions, token issuance, authorization policy,
+tenancy, Canvas, dashboards, poller policy, cluster administration, and UI
+state. Startup detects or converts legacy storage before a child becomes
+ready. There is no per-request fallback to Rocket or an embedded storage
+owner.
 
-```elixir
-config :timeless_ui, :metrics_data_plane,
-  enabled: true,
-  binary: "/opt/timeless/bin/timeless-metrics-api",
-  extension: "/opt/timeless/lib/libtimeless_ext.so",
-  database: "/var/lib/timeless/metrics.db",
-  listen: "127.0.0.1:19439"
+The listeners default to IPv4 loopback. UI clients own no SQLite/libSQL
+connection and reject incomplete or invalid responses as one failed
+operation. On normal OTP shutdown the logs producer drains first, then each
+owner receives `SIGTERM`, flushes accepted work, checkpoints, and exits. The
+supervisor bounds escalation/restart and reaps every child.
 
-config :timeless_canvas, :data_source,
-  module: TimelessUI.MetricsDataPlane.CanvasSource,
-  config: %{
-    source: :data_plane,
-    fallback: MyExistingCanvasDataSource,
-    fallback_config: %{}
-  },
-  poll_interval: 2_000
-```
-
-The listener must be an IPv4 loopback address. The client owns no SQLite or
-libSQL connection and rejects incomplete or invalid responses as one failed
-operation. On normal OTP shutdown the owner sends `SIGTERM`; the Rust server
-drains and flushes before exiting, and the supervisor leaves no orphan process.
-`bench/metrics_data_plane_boundary.exs` measures the incremental supervision
-lookup and SIGKILL-to-ready recovery against release artifacts in the sibling
-`timeless-libsql` checkout.
+`timeless_stack` supplies the production configuration and defaults to
+`TIMELESS_DATA_PLANE=rust`. See its
+`docs/telemetry_data_plane_compatibility.md` for supported query/ingest
+surfaces and `docs/telemetry_data_plane_operations.md` for migration, backup,
+restore, rollback, and cleanup. Direct component development may still enable
+one owner explicitly in application config; that is a test/development seam,
+not a second production ownership model.
 
 ## Deployment
 
