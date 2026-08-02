@@ -9,6 +9,10 @@ defmodule TimelessUI.TelemetryAuthTest do
   alias TimelessUI.TelemetryAuth.{Audit, Policy, Revocation, SigningKey}
   alias TimelessUI.TelemetryDataPlane.Policy, as: RuntimePolicy
 
+  @libsql Path.expand("../../../timeless-libsql", __DIR__)
+  @metrics_binary Path.join(@libsql, "servers/target/release/timeless-metrics-api")
+  @extension Path.join(@libsql, "target/release/libtimeless_ext.so")
+
   setup do
     admin = AccountsFixtures.user_fixture(%{role: "admin"})
     viewer = AccountsFixtures.user_fixture(%{role: "viewer"})
@@ -195,6 +199,97 @@ defmodule TimelessUI.TelemetryAuthTest do
     assert Repo.get_by!(Policy, subject: "timeless-ui:traces").signal == "traces"
   end
 
+  if File.regular?(@metrics_binary) and File.regular?(@extension) do
+    test "live Rust owner fails closed and recovers across token rotation and control disconnect",
+         ctx do
+      runtime_name = :telemetry_rotation_runtime_policy
+      owner_name = :telemetry_rotation_metrics_owner
+      policy_path = Path.join(ctx.root, "live-metrics-policy.json")
+      data_dir = Path.join(ctx.root, "live-metrics")
+      listen = "127.0.0.1:#{free_port()}"
+
+      planes = [
+        [
+          signal: :metrics,
+          auth_mode: :required,
+          auth_policy_path: policy_path,
+          tenant: "default"
+        ]
+      ]
+
+      start_supervised!({RuntimePolicy, name: runtime_name, planes: planes})
+
+      start_supervised!(
+        {TimelessUI.TelemetryDataPlane.Process,
+         signal: :metrics,
+         name: owner_name,
+         binary: @metrics_binary,
+         extension: @extension,
+         data_dir: data_dir,
+         startup_module: TimelessUI.TelemetryDataPlaneStartupFixture,
+         startup_opts: [target_name: "metrics.db", create_file: :sqlite],
+         listen: listen,
+         auth_mode: :required,
+         auth_policy_path: policy_path,
+         tenant: "default",
+         token_provider: {RuntimePolicy, :authorization_header, [runtime_name]},
+         env: %{
+           "TIMELESS_METRICS_FLUSH_INTERVAL_SECS" => "3600",
+           "TIMELESS_METRICS_COMPACT_INTERVAL_SECS" => "3600",
+           "TIMELESS_METRICS_RETENTION_INTERVAL_SECS" => "3600"
+         }}
+      )
+
+      assert {:ok, endpoint} =
+               TimelessUI.TelemetryDataPlane.Process.await_ready(owner_name)
+
+      assert {:ok, first_header = {"authorization", "Bearer " <> first_token}} =
+               RuntimePolicy.authorization_header(:metrics, runtime_name)
+
+      assert direct_status(endpoint, first_header) == 200
+      {:ok, first_key} = first_token |> decode_token() |> elem(1) |> Map.fetch("kid")
+
+      assert {:ok, second_key} = TelemetryAuth.rotate_key(ctx.admin, kid: "live-key-2")
+      assert second_key.kid != first_key
+      assert :ok = RuntimePolicy.refresh(:metrics, runtime_name)
+
+      assert {:ok, second_header = {"authorization", "Bearer " <> second_token}} =
+               RuntimePolicy.authorization_header(:metrics, runtime_name)
+
+      assert second_token != first_token
+      assert direct_status(endpoint, second_header) == 200
+
+      assert {:ok, %SigningKey{state: "revoked"}} =
+               TelemetryAuth.revoke_key(ctx.admin, first_key)
+
+      assert :ok = RuntimePolicy.refresh(:metrics, runtime_name)
+      assert direct_status(endpoint, first_header) == 401
+      assert direct_status(endpoint, second_header) == 200
+
+      offline = policy_path <> ".offline"
+      assert :ok = File.rename(policy_path, offline)
+      assert direct_status(endpoint, second_header) == 401
+      assert :ok = File.rename(offline, policy_path)
+      assert direct_status(endpoint, second_header) == 200
+
+      assert :ok = stop_supervised(RuntimePolicy)
+
+      assert {:error, disconnected} =
+               TimelessUI.MetricsDataPlane.Client.stats(process: owner_name)
+
+      refute inspect(disconnected) =~ second_token
+      start_supervised!({RuntimePolicy, name: runtime_name, planes: planes})
+
+      assert {:ok, %{"module" => "timeless_metrics"}} =
+               TimelessUI.MetricsDataPlane.Client.stats(process: owner_name)
+    end
+  else
+    @tag skip: "build the timeless-libsql extension and metrics release binary"
+    test "live Rust owner fails closed and recovers across token rotation and control disconnect" do
+      :ok
+    end
+  end
+
   defp decode_token(token) do
     with [encoded_header, encoded_claims, encoded_signature] <- String.split(token, "."),
          {:ok, header_json} <- Base.url_decode64(encoded_header, padding: false),
@@ -204,5 +299,21 @@ defmodule TimelessUI.TelemetryAuthTest do
          {:ok, claims} <- Jason.decode(claims_json) do
       {:ok, header, claims, signature, encoded_header <> "." <> encoded_claims}
     end
+  end
+
+  defp direct_status(endpoint, header) do
+    {:ok, response} =
+      Req.get(endpoint <> "/select/metrics/stats", headers: [header], retry: false)
+
+    response.status
+  end
+
+  defp free_port do
+    {:ok, socket} =
+      :gen_tcp.listen(0, [:binary, active: false, reuseaddr: true, ip: {127, 0, 0, 1}])
+
+    {:ok, {_address, port}} = :inet.sockname(socket)
+    :gen_tcp.close(socket)
+    port
   end
 end
