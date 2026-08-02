@@ -6,6 +6,24 @@ defmodule TimelessUI.TracesDataPlane.ClientTest do
   @trace_id "00112233445566778899aabbccddeeff"
   @span_id "0011223344556677"
 
+  test "backup preserves the complete Rust maintenance report" do
+    request = fn options ->
+      send(self(), {:backup_request, options})
+      {:ok, %{status: 200, body: ~s({"signal":"traces","bytes":44})}}
+    end
+
+    assert {:ok, %{"signal" => "traces", "bytes" => 44}} =
+             Client.backup("/backup/traces.db",
+               base_url: "http://127.0.0.1:19449",
+               request: request
+             )
+
+    assert_received {:backup_request, options}
+    assert options[:method] == :post
+    assert options[:url] == "http://127.0.0.1:19449/api/v1/backup"
+    assert Jason.decode!(options[:body]) == %{"destination" => "/backup/traces.db"}
+  end
+
   test "decodes every rich-span field as one complete historical operation" do
     span = span_fixture()
 

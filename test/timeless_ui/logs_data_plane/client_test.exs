@@ -3,6 +3,24 @@ defmodule TimelessUI.LogsDataPlane.ClientTest do
 
   alias TimelessUI.LogsDataPlane.Client
 
+  test "backup is one authenticated JSON maintenance operation" do
+    request = fn options ->
+      send(self(), {:backup_request, options})
+      {:ok, %{status: 200, body: ~s({"signal":"logs","bytes":43})}}
+    end
+
+    assert {:ok, %{"signal" => "logs"}} =
+             Client.backup("/backup/logs.db",
+               base_url: "http://127.0.0.1:19429",
+               request: request
+             )
+
+    assert_received {:backup_request, options}
+    assert options[:method] == :post
+    assert options[:url] == "http://127.0.0.1:19429/api/v1/backup"
+    assert Jason.decode!(options[:body]) == %{"destination" => "/backup/logs.db"}
+  end
+
   test "decodes a complete historical response without a legacy storage dependency" do
     body =
       Jason.encode!(%{

@@ -26,6 +26,14 @@ defmodule TimelessUI.LogsDataPlane.Client do
   def stats(opts \\ []), do: json_request(:get, "/select/logsql/stats", opts)
   def flush(opts \\ []), do: json_request(:get, "/api/v1/flush", opts)
 
+  def backup(destination, opts \\ []) when is_binary(destination) do
+    json_request(
+      :post,
+      "/api/v1/backup",
+      json_body(opts, %{"destination" => destination})
+    )
+  end
+
   def ingest(entries, opts \\ []) when is_list(entries) do
     with {:ok, body} <- encode_entries(entries),
          {:ok, status, response} <-
@@ -108,6 +116,14 @@ defmodule TimelessUI.LogsDataPlane.Client do
       level = Keyword.get(filters, :level) -> validate_level(level)
       true -> :ok
     end
+  end
+
+  defp json_body(opts, value) do
+    opts
+    |> Keyword.put(:body, Jason.encode!(value))
+    |> Keyword.update(:headers, [{"content-type", "application/json"}], fn headers ->
+      [{"content-type", "application/json"} | headers]
+    end)
   end
 
   defp validate_level(level) when is_atom(level), do: validate_level(Atom.to_string(level))

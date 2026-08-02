@@ -24,6 +24,14 @@ defmodule TimelessUI.TracesDataPlane.Client do
   def stats(opts \\ []), do: json_request(:get, "/select/traces/stats", opts)
   def flush(opts \\ []), do: json_request(:post, "/api/v1/flush", opts)
 
+  def backup(destination, opts \\ []) when is_binary(destination) do
+    json_request(
+      :post,
+      "/api/v1/backup",
+      json_body(opts, %{"destination" => destination})
+    )
+  end
+
   def ingest_otlp(body, opts \\ []) when is_binary(body) do
     protobuf? = Keyword.get(opts, :format, :protobuf) == :protobuf
     gzip? = Keyword.get(opts, :gzip, false)
@@ -119,6 +127,14 @@ defmodule TimelessUI.TracesDataPlane.Client do
   end
 
   defp decode_search(_body), do: {:error, :invalid_search_response}
+
+  defp json_body(opts, value) do
+    opts
+    |> Keyword.put(:body, Jason.encode!(value))
+    |> Keyword.update(:headers, [{"content-type", "application/json"}], fn headers ->
+      [{"content-type", "application/json"} | headers]
+    end)
+  end
 
   defp decode_spans(spans) do
     spans

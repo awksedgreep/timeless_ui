@@ -15,6 +15,14 @@ defmodule TimelessUI.MetricsDataPlane.Client do
   def stats(opts \\ []), do: json_request(:get, "/select/metrics/stats", opts)
   def flush(opts \\ []), do: json_request(:post, "/api/v1/flush", opts)
 
+  def backup(destination, opts \\ []) when is_binary(destination) do
+    json_request(
+      :post,
+      "/api/v1/backup",
+      json_body(opts, %{"destination" => destination})
+    )
+  end
+
   def import_victoria(body, opts \\ []) when is_binary(body) do
     expect_empty_success(:post, "/api/v1/import", body, opts)
   end
@@ -78,6 +86,14 @@ defmodule TimelessUI.MetricsDataPlane.Client do
       {:error, _reason} = error ->
         error
     end
+  end
+
+  defp json_body(opts, value) do
+    opts
+    |> Keyword.put(:body, Jason.encode!(value))
+    |> Keyword.update(:headers, [{"content-type", "application/json"}], fn headers ->
+      [{"content-type", "application/json"} | headers]
+    end)
   end
 
   @doc "Return complete raw series in Canvas-friendly millisecond timestamps."

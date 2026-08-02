@@ -32,14 +32,21 @@ defmodule TimelessUI.Application do
     # See https://hexdocs.pm/elixir/Supervisor.html
     # for other strategies and supported options
     opts = [strategy: :one_for_one, name: TimelessUI.Supervisor]
-    result = Supervisor.start_link(children, opts)
 
-    case TimelessUI.Accounts.ensure_admin_user() do
-      :created -> Logger.info("Default admin user created")
-      :exists -> :ok
+    case Supervisor.start_link(children, opts) do
+      {:ok, _pid} = result ->
+        accounts = Application.get_env(:timeless_ui, :accounts_module, TimelessUI.Accounts)
+
+        case accounts.ensure_admin_user() do
+          :created -> Logger.info("Default admin user created")
+          :exists -> :ok
+        end
+
+        result
+
+      error ->
+        error
     end
-
-    result
   end
 
   defp telemetry_data_planes do

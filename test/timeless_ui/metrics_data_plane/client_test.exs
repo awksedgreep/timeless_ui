@@ -3,6 +3,24 @@ defmodule TimelessUI.MetricsDataPlane.ClientTest do
 
   alias TimelessUI.MetricsDataPlane.Client
 
+  test "backup sends an absolute destination to the maintenance endpoint" do
+    request = fn options ->
+      send(self(), {:backup_request, options})
+      {:ok, %{status: 200, body: ~s({"signal":"metrics","bytes":42})}}
+    end
+
+    assert {:ok, %{"signal" => "metrics", "bytes" => 42}} =
+             Client.backup("/backup/metrics.db",
+               base_url: "http://127.0.0.1:19439",
+               request: request
+             )
+
+    assert_received {:backup_request, options}
+    assert options[:method] == :post
+    assert options[:url] == "http://127.0.0.1:19439/api/v1/backup"
+    assert Jason.decode!(options[:body]) == %{"destination" => "/backup/metrics.db"}
+  end
+
   test "exposes the declared native, discovery, and PromQL routes" do
     request = fn options ->
       send(self(), {:request_options, options})

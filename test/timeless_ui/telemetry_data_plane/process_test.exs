@@ -117,6 +117,21 @@ defmodule TimelessUI.TelemetryDataPlane.ProcessTest do
     refute File.exists?(Path.join(fixture.root, "auth"))
   end
 
+  test "a non-executable release binary fails before touching storage", fixture do
+    File.chmod!(fixture.executable, 0o600)
+    data_dir = Path.join(fixture.root, "must-remain-absent")
+
+    assert {:error, reason} =
+             GenServer.start(
+               DataPlaneProcess,
+               base_options(fixture, :logs, :non_executable_fixture, data_dir: data_dir)
+             )
+
+    assert inspect(reason) =~ "invalid_data_plane_path"
+    assert inspect(reason) =~ "binary"
+    refute File.exists?(data_dir)
+  end
+
   defp base_options(fixture, signal, name, overrides) do
     [
       signal: signal,

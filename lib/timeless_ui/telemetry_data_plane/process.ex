@@ -311,10 +311,14 @@ defmodule TimelessUI.TelemetryDataPlane.Process do
     with {:ok, path} <- required_option(opts, name, signal) do
       path = Path.expand(to_string(path))
 
-      if File.regular?(path) do
-        {:ok, path}
-      else
-        {:error, {:invalid_data_plane_path, signal, name, path}}
+      case File.stat(path) do
+        {:ok, %{type: :regular, mode: mode}} ->
+          if name != :binary or Bitwise.band(mode, 0o111) != 0,
+            do: {:ok, path},
+            else: {:error, {:invalid_data_plane_path, signal, name, path}}
+
+        _ ->
+          {:error, {:invalid_data_plane_path, signal, name, path}}
       end
     end
   end
