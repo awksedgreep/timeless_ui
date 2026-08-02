@@ -1,5 +1,5 @@
-defmodule TimelessUI.MetricsDataPlane.Process do
-  @moduledoc "Compatibility facade for the neutral telemetry data-plane owner."
+defmodule TimelessUI.TracesDataPlane.Process do
+  @moduledoc "Signal facade for the neutral telemetry data-plane owner."
 
   alias TimelessUI.TelemetryDataPlane.Process, as: Owner
 
@@ -17,7 +17,7 @@ defmodule TimelessUI.MetricsDataPlane.Process do
   def retry(server \\ __MODULE__), do: Owner.retry(server)
   def authorization_header(server \\ __MODULE__), do: Owner.authorization_header(server)
 
-  defp options(opts), do: opts |> normalize() |> Keyword.put(:signal, :metrics)
+  defp options(opts), do: opts |> normalize() |> Keyword.put(:signal, :traces)
   defp normalize(opts) when is_map(opts), do: Map.to_list(opts)
   defp normalize(opts) when is_list(opts), do: opts
 end

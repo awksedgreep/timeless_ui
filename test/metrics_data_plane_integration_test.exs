@@ -1,35 +1,36 @@
 defmodule TimelessUI.MetricsDataPlaneIntegrationTest do
   use ExUnit.Case, async: false
 
-  alias TimelessCanvas.Canvas.Element
-  alias TimelessUI.MetricsDataPlane.CanvasSource
-  alias TimelessUI.MetricsDataPlane.Client
-  alias TimelessUI.MetricsDataPlane.Process, as: DataPlaneProcess
-
   @libsql Path.expand("../../timeless-libsql", __DIR__)
   @binary Path.join(@libsql, "servers/target/release/timeless-metrics-api")
   @extension Path.join(@libsql, "target/release/libtimeless_ext.so")
 
-  if File.regular?(@binary) and File.regular?(@extension) do
+  if File.regular?(@binary) and File.regular?(@extension) and
+       Code.ensure_loaded?(TimelessMetrics.ReleaseStartup) do
+    alias TimelessCanvas.Canvas.Element
+    alias TimelessUI.MetricsDataPlane.CanvasSource
+    alias TimelessUI.MetricsDataPlane.Client
+    alias TimelessUI.MetricsDataPlane.Process, as: DataPlaneProcess
+
     test "supervised Rust crash isolates the BEAM and preserves flushed Canvas results" do
       unique = System.unique_integer([:positive])
-      name = :"metrics_data_plane_#{unique}"
-      database = Path.join(System.tmp_dir!(), "metrics_data_plane_#{unique}.db")
+      name = {:global, {:metrics_data_plane, unique}}
+      data_dir = Path.join(System.tmp_dir!(), "metrics_data_plane_#{unique}")
+      database = Path.join(data_dir, "metrics.db")
       port = free_port()
 
       on_exit(fn ->
-        File.rm(database)
-        File.rm(database <> "-shm")
-        File.rm(database <> "-wal")
-        File.rm(database <> ".timeless-metrics-api.lock")
+        File.rm_rf(data_dir)
       end)
 
       process_opts = [
         name: name,
         binary: @binary,
         extension: @extension,
-        database: database,
+        data_dir: data_dir,
+        startup_module: TimelessMetrics.ReleaseStartup,
         listen: "127.0.0.1:#{port}",
+        auth_mode: :disabled,
         env: %{
           "TIMELESS_METRICS_FLUSH_INTERVAL_SECS" => "3600",
           "TIMELESS_METRICS_COMPACT_INTERVAL_SECS" => "3600",
@@ -82,7 +83,7 @@ defmodule TimelessUI.MetricsDataPlaneIntegrationTest do
 
       assert expected == CanvasSource.metric_range(source, element, "canvas_cpu", from, to)
 
-      old_beam_pid = Process.whereis(name)
+      old_beam_pid = GenServer.whereis(name)
       old_ref = Process.monitor(old_beam_pid)
       old_os_pid = DataPlaneProcess.os_pid(name)
       assert is_integer(old_os_pid)
@@ -124,49 +125,49 @@ defmodule TimelessUI.MetricsDataPlaneIntegrationTest do
       assert :ok = stop_supervised({DataPlaneProcess, name})
       assert :ok = await_os_process_down(final_os_pid, 500)
     end
+
+    defp free_port do
+      {:ok, socket} =
+        :gen_tcp.listen(0, [:binary, active: false, reuseaddr: true, ip: {127, 0, 0, 1}])
+
+      {:ok, {_address, port}} = :inet.sockname(socket)
+      :gen_tcp.close(socket)
+      port
+    end
+
+    defp await_restarted(_name, _old_pid, 0), do: nil
+
+    defp await_restarted(name, old_pid, attempts) do
+      case GenServer.whereis(name) do
+        pid when is_pid(pid) and pid != old_pid ->
+          pid
+
+        _ ->
+          receive do
+          after
+            10 -> await_restarted(name, old_pid, attempts - 1)
+          end
+      end
+    end
+
+    defp await_os_process_down(_os_pid, 0), do: {:error, :still_running}
+
+    defp await_os_process_down(os_pid, attempts) do
+      case System.cmd("kill", ["-0", Integer.to_string(os_pid)], stderr_to_stdout: true) do
+        {_output, status} when status != 0 ->
+          :ok
+
+        _ ->
+          receive do
+          after
+            10 -> await_os_process_down(os_pid, attempts - 1)
+          end
+      end
+    end
   else
     @tag skip: "build the timeless-libsql extension and release server artifacts to run this gate"
     test "supervised Rust crash isolates the BEAM and preserves flushed Canvas results" do
       :ok
-    end
-  end
-
-  defp free_port do
-    {:ok, socket} =
-      :gen_tcp.listen(0, [:binary, active: false, reuseaddr: true, ip: {127, 0, 0, 1}])
-
-    {:ok, {_address, port}} = :inet.sockname(socket)
-    :gen_tcp.close(socket)
-    port
-  end
-
-  defp await_restarted(_name, _old_pid, 0), do: nil
-
-  defp await_restarted(name, old_pid, attempts) do
-    case Process.whereis(name) do
-      pid when is_pid(pid) and pid != old_pid ->
-        pid
-
-      _ ->
-        receive do
-        after
-          10 -> await_restarted(name, old_pid, attempts - 1)
-        end
-    end
-  end
-
-  defp await_os_process_down(_os_pid, 0), do: {:error, :still_running}
-
-  defp await_os_process_down(os_pid, attempts) do
-    case System.cmd("kill", ["-0", Integer.to_string(os_pid)], stderr_to_stdout: true) do
-      {_output, status} when status != 0 ->
-        :ok
-
-      _ ->
-        receive do
-        after
-          10 -> await_os_process_down(os_pid, attempts - 1)
-        end
     end
   end
 end

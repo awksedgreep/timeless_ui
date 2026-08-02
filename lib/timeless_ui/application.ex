@@ -8,13 +8,18 @@ defmodule TimelessUI.Application do
 
   @impl true
   def start(_type, _args) do
+    data_planes = telemetry_data_planes()
+
     children =
-      metrics_data_plane_children() ++
+      [
+        TimelessUIWeb.Telemetry,
+        TimelessUI.Repo,
+        {Ecto.Migrator,
+         repos: Application.fetch_env!(:timeless_ui, :ecto_repos), skip: skip_migrations?()}
+      ] ++
+        telemetry_policy_children(data_planes) ++
+        telemetry_data_plane_children(data_planes) ++
         [
-          TimelessUIWeb.Telemetry,
-          TimelessUI.Repo,
-          {Ecto.Migrator,
-           repos: Application.fetch_env!(:timeless_ui, :ecto_repos), skip: skip_migrations?()},
           {DNSCluster, query: Application.get_env(:timeless_ui, :dns_cluster_query) || :ignore},
           {Phoenix.PubSub, name: TimelessUI.PubSub},
           TimelessCanvas.Supervisor,
@@ -36,14 +41,41 @@ defmodule TimelessUI.Application do
     result
   end
 
-  defp metrics_data_plane_children do
+  defp telemetry_data_planes do
+    configured = Application.get_env(:timeless_ui, :telemetry_data_planes, [])
     config = Application.get_env(:timeless_ui, :metrics_data_plane, enabled: false)
 
-    if Keyword.get(config, :enabled, false) do
-      [{TimelessUI.MetricsDataPlane.Process, Keyword.delete(config, :enabled)}]
+    legacy_metrics =
+      if Keyword.get(config, :enabled, false),
+        do: [[signal: :metrics] ++ Keyword.delete(config, :enabled)],
+        else: []
+
+    configured ++ legacy_metrics
+  end
+
+  defp telemetry_policy_children(data_planes) do
+    if Enum.any?(data_planes, &(Keyword.get(&1, :auth_mode, :required) == :required)) do
+      [{TimelessUI.TelemetryDataPlane.Policy, planes: data_planes}]
     else
       []
     end
+  end
+
+  defp telemetry_data_plane_children(data_planes) do
+    Enum.map(data_planes, fn opts ->
+      opts =
+        if Keyword.get(opts, :auth_mode, :required) == :required do
+          Keyword.put_new(
+            opts,
+            :token_provider,
+            {TimelessUI.TelemetryDataPlane.Policy, :authorization_header, []}
+          )
+        else
+          opts
+        end
+
+      {TimelessUI.TelemetryDataPlane.Process, opts}
+    end)
   end
 
   # Tell Phoenix to update the endpoint configuration

@@ -61,12 +61,12 @@ defmodule TimelessUI.MetricsDataPlane.Client do
   end
 
   defp raw_request(method, path, opts) do
-    with {:ok, endpoint} <- resolve_endpoint(opts) do
+    with {:ok, endpoint, owner_header} <- resolve_connection(opts) do
       request_options = [
         method: method,
         url: endpoint <> path,
         params: Keyword.get(opts, :params, %{}),
-        headers: Keyword.get(opts, :headers, []),
+        headers: request_headers(opts, owner_header),
         receive_timeout: Keyword.get(opts, :timeout, @default_timeout),
         retry: false,
         decode_body: false
@@ -95,20 +95,34 @@ defmodule TimelessUI.MetricsDataPlane.Client do
     :exit, reason -> {:error, {:transport, reason}}
   end
 
-  defp resolve_endpoint(opts) do
+  defp resolve_connection(opts) do
     case Keyword.fetch(opts, :base_url) do
       {:ok, endpoint} when is_binary(endpoint) ->
-        loopback_endpoint(endpoint)
+        case loopback_endpoint(endpoint) do
+          {:ok, endpoint} -> {:ok, endpoint, nil}
+          {:error, _reason} = error -> error
+        end
 
       _ ->
         process = Keyword.get(opts, :process, DataPlaneProcess)
         timeout = Keyword.get(opts, :timeout, @default_timeout)
 
-        case DataPlaneProcess.await_ready(process, timeout) do
-          {:ok, endpoint} -> loopback_endpoint(endpoint)
-          {:error, _reason} = error -> error
+        with {:ok, endpoint} <- DataPlaneProcess.await_ready(process, timeout),
+             {:ok, endpoint} <- loopback_endpoint(endpoint),
+             {:ok, header} <- DataPlaneProcess.authorization_header(process) do
+          {:ok, endpoint, header}
         end
     end
+  end
+
+  defp request_headers(opts, nil), do: Keyword.get(opts, :headers, [])
+
+  defp request_headers(opts, {name, value}) do
+    [{name, value} | Enum.reject(Keyword.get(opts, :headers, []), &authorization_header?/1)]
+  end
+
+  defp authorization_header?({name, _value}) do
+    String.downcase(to_string(name)) == "authorization"
   end
 
   defp loopback_endpoint(endpoint) do

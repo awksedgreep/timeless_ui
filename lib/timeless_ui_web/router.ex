@@ -71,6 +71,25 @@ defmodule TimelessUIWeb.Router do
   scope "/", TimelessUIWeb do
     pipe_through [:browser, :require_authenticated_user, :require_admin_user]
 
+    get "/admin/api/telemetry/data-planes", TelemetryAdminController, :status
+    post "/admin/api/telemetry/data-planes/:signal/retry", TelemetryAdminController, :retry
+    post "/admin/api/telemetry/auth/keys/rotate", TelemetryAdminController, :rotate_key
+    post "/admin/api/telemetry/auth/keys/:kid/revoke", TelemetryAdminController, :revoke_key
+
+    put "/admin/api/telemetry/auth/policies/:signal/:tenant/:subject",
+        TelemetryAdminController,
+        :put_policy
+
+    post "/admin/api/telemetry/auth/policies/:signal/:tenant/:subject/bump",
+         TelemetryAdminController,
+         :bump_auth_version
+
+    post "/admin/api/telemetry/auth/tokens/:signal/:subject",
+         TelemetryAdminController,
+         :issue_token
+
+    post "/admin/api/telemetry/auth/tokens/revoke", TelemetryAdminController, :revoke_token
+
     live_session :require_admin_user,
       on_mount: [{TimelessUIWeb.UserAuth, :require_admin}] do
       live "/scrape-targets", ScrapeTargetLive, :index

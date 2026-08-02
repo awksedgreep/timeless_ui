@@ -56,7 +56,27 @@ defmodule TimelessUI.MetricsDataPlane.ClientTest do
              Client.export("cpu", %{}, 1, 2, base_url: "http://192.0.2.1:19439")
   end
 
-  defp serve_once(body, declared_length \\ nil) do
+  test "process-backed calls use its short-lived token and replace caller credentials" do
+    token = "header.payload.signature"
+    endpoint = serve_once("{}", nil, self())
+    name = {:global, {:metrics_client_process, System.unique_integer([:positive])}}
+
+    start_supervised!(
+      {TimelessUI.MetricsDataPlaneProcessFixture, name: name, endpoint: endpoint, token: token}
+    )
+
+    assert {:ok, %{}} =
+             Client.health(
+               process: name,
+               headers: [{"authorization", "Bearer caller-must-not-win"}]
+             )
+
+    assert_receive {:request, request}
+    assert String.downcase(request) =~ "authorization: bearer #{token}"
+    refute request =~ "caller-must-not-win"
+  end
+
+  defp serve_once(body, declared_length \\ nil, notify \\ nil) do
     declared_length = declared_length || byte_size(body)
 
     {:ok, listener} =
@@ -68,7 +88,8 @@ defmodule TimelessUI.MetricsDataPlane.ClientTest do
       {Task,
        fn ->
          {:ok, socket} = :gen_tcp.accept(listener)
-         {:ok, _request} = :gen_tcp.recv(socket, 0, 5_000)
+         {:ok, request} = :gen_tcp.recv(socket, 0, 5_000)
+         if is_pid(notify), do: send(notify, {:request, request})
 
          response = [
            "HTTP/1.1 200 OK\r\n",
