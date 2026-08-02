@@ -7,7 +7,7 @@ defmodule TimelessUI.MetricsDataPlaneIntegrationTest do
   alias TimelessUI.MetricsDataPlane.Process, as: DataPlaneProcess
 
   @libsql Path.expand("../../timeless-libsql", __DIR__)
-  @binary Path.join(@libsql, "poc/timeless-metrics-api/target/release/timeless-metrics-api")
+  @binary Path.join(@libsql, "servers/target/release/timeless-metrics-api")
   @extension Path.join(@libsql, "target/release/libtimeless_ext.so")
 
   if File.regular?(@binary) and File.regular?(@extension) do
@@ -125,8 +125,7 @@ defmodule TimelessUI.MetricsDataPlaneIntegrationTest do
       assert :ok = await_os_process_down(final_os_pid, 500)
     end
   else
-    @tag skip:
-           "build timeless-libsql and poc/timeless-metrics-api release artifacts to run this gate"
+    @tag skip: "build the timeless-libsql extension and release server artifacts to run this gate"
     test "supervised Rust crash isolates the BEAM and preserves flushed Canvas results" do
       :ok
     end

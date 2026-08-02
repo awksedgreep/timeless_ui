@@ -11,7 +11,7 @@ defmodule MetricsDataPlaneBoundaryBench do
 
     binary =
       System.get_env("TIMELESS_METRICS_API_BINARY") ||
-        Path.join(libsql, "poc/timeless-metrics-api/target/release/timeless-metrics-api")
+        Path.join(libsql, "servers/target/release/timeless-metrics-api")
 
     extension =
       System.get_env("TIMELESS_LIBSQL_EXTENSION") ||
