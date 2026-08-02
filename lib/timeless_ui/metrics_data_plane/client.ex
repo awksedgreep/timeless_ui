@@ -12,10 +12,63 @@ defmodule TimelessUI.MetricsDataPlane.Client do
   @default_timeout 30_000
 
   def health(opts \\ []), do: json_request(:get, "/health", opts)
+  def stats(opts \\ []), do: json_request(:get, "/select/metrics/stats", opts)
   def flush(opts \\ []), do: json_request(:post, "/api/v1/flush", opts)
 
+  def import_victoria(body, opts \\ []) when is_binary(body) do
+    expect_empty_success(:post, "/api/v1/import", body, opts)
+  end
+
   def import_prometheus(body, opts \\ []) when is_binary(body) do
-    case raw_request(:post, "/api/v1/import/prometheus", Keyword.put(opts, :body, body)) do
+    expect_empty_success(:post, "/api/v1/import/prometheus", body, opts)
+  end
+
+  def latest(metric, labels \\ %{}, opts \\ [])
+      when is_binary(metric) and is_map(labels) do
+    params = labels |> Map.put("metric", metric)
+    json_request(:get, "/api/v1/query", Keyword.put(opts, :params, params))
+  end
+
+  def range(metric, labels, from, to, step, aggregate, opts \\ [])
+      when is_binary(metric) and is_map(labels) and is_integer(from) and is_integer(to) and
+             is_integer(step) and step > 0 and
+             aggregate in [:avg, :min, :max, :sum, :count, :last, :first, :rate] do
+    params =
+      labels
+      |> Map.merge(%{
+        "metric" => metric,
+        "start" => from,
+        "end" => to,
+        "step" => step,
+        "aggregate" => Atom.to_string(aggregate)
+      })
+
+    json_request(:get, "/api/v1/query_range", Keyword.put(opts, :params, params))
+  end
+
+  def labels(opts \\ []), do: data_array_request("/api/v1/labels", %{}, opts)
+
+  def label_values(name, params \\ %{}, opts \\ []) when is_binary(name) and is_map(params) do
+    data_array_request("/api/v1/label/#{URI.encode(name)}/values", params, opts)
+  end
+
+  def series(metric, opts \\ []) when is_binary(metric) do
+    data_array_request("/api/v1/series", %{"metric" => metric}, opts)
+  end
+
+  def prometheus_instant(query, time \\ nil, opts \\ []) when is_binary(query) do
+    params = maybe_put(%{"query" => query}, "time", time)
+    json_request(:get, "/prometheus/api/v1/query", Keyword.put(opts, :params, params))
+  end
+
+  def prometheus_range(query, from, to, step, opts \\ [])
+      when is_binary(query) and is_integer(from) and is_integer(to) do
+    params = %{"query" => query, "start" => from, "end" => to, "step" => step}
+    json_request(:get, "/prometheus/api/v1/query_range", Keyword.put(opts, :params, params))
+  end
+
+  defp expect_empty_success(method, path, body, opts) do
+    case raw_request(method, path, Keyword.put(opts, :body, body)) do
       {:ok, 204, ""} ->
         :ok
 
@@ -49,6 +102,16 @@ defmodule TimelessUI.MetricsDataPlane.Client do
   @doc false
   def request_json(method, path, opts \\ []), do: json_request(method, path, opts)
 
+  defp data_array_request(path, params, opts) do
+    with {:ok, %{"status" => "success", "data" => data}} when is_list(data) <-
+           json_request(:get, path, Keyword.put(opts, :params, params)) do
+      {:ok, data}
+    else
+      {:ok, _body} -> {:error, :invalid_discovery_response}
+      {:error, _reason} = error -> error
+    end
+  end
+
   defp json_request(method, path, opts) do
     with {:ok, status, body} when status in 200..299 <- raw_request(method, path, opts),
          {:ok, decoded} <- Jason.decode(body) do
@@ -78,11 +141,13 @@ defmodule TimelessUI.MetricsDataPlane.Client do
           :error -> request_options
         end
 
-      case Req.request(request_options) do
-        {:ok, %Req.Response{status: status, body: body}} when is_binary(body) ->
+      request = Keyword.get(opts, :request, &Req.request/1)
+
+      case request.(request_options) do
+        {:ok, %{status: status, body: body}} when is_integer(status) and is_binary(body) ->
           {:ok, status, body}
 
-        {:ok, %Req.Response{status: status, body: body}} ->
+        {:ok, %{status: status, body: body}} ->
           {:error, {:invalid_response_body, status, body}}
 
         {:error, reason} ->
@@ -179,6 +244,9 @@ defmodule TimelessUI.MetricsDataPlane.Client do
       _ -> {:error, :invalid_export_shape}
     end
   end
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp excerpt(body) when is_binary(body), do: binary_part(body, 0, min(byte_size(body), 1_024))
   defp excerpt(body), do: inspect(body)

@@ -3,6 +3,29 @@ defmodule TimelessUI.MetricsDataPlane.ClientTest do
 
   alias TimelessUI.MetricsDataPlane.Client
 
+  test "exposes the declared native, discovery, and PromQL routes" do
+    request = fn options ->
+      send(self(), {:request_options, options})
+      {:ok, %{status: 200, body: ~s({"status":"success","data":[]})}}
+    end
+
+    opts = [base_url: "http://127.0.0.1:19439", request: request]
+
+    assert {:ok, []} = Client.labels(opts)
+    assert_received {:request_options, labels}
+    assert labels[:url] == "http://127.0.0.1:19439/api/v1/labels"
+
+    assert {:ok, []} = Client.label_values("host", %{"metric" => "cpu"}, opts)
+    assert_received {:request_options, values}
+    assert values[:params] == %{"metric" => "cpu"}
+
+    assert {:ok, %{"status" => "success"}} =
+             Client.prometheus_instant("cpu{host=\"edge\"}", 10, opts)
+
+    assert_received {:request_options, promql}
+    assert promql[:params] == %{"query" => "cpu{host=\"edge\"}", "time" => 10}
+  end
+
   test "decodes a complete Victoria export into millisecond Canvas points" do
     body =
       Jason.encode!(%{

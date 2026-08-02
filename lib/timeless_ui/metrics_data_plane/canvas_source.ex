@@ -97,12 +97,26 @@ defmodule TimelessUI.MetricsDataPlane.CanvasSource do
   end
 
   @impl true
-  def list_series_for_host(state, host) do
-    optional(state, :list_series_for_host, [state.fallback_state, host], [])
+  def list_series_for_host(state, host, opts \\ []) do
+    optional_with_legacy_opts(
+      state,
+      :list_series_for_host,
+      [state.fallback_state, host, opts],
+      [state.fallback_state, host],
+      []
+    )
   end
 
   @impl true
-  def list_hosts(state), do: optional(state, :list_hosts, [state.fallback_state], [])
+  def list_hosts(state, opts \\ []) do
+    optional_with_legacy_opts(
+      state,
+      :list_hosts,
+      [state.fallback_state, opts],
+      [state.fallback_state],
+      []
+    )
+  end
 
   @impl true
   def metric_metadata(state, metric_name) do
@@ -120,8 +134,14 @@ defmodule TimelessUI.MetricsDataPlane.CanvasSource do
   end
 
   @impl true
-  def list_label_values(state, label_key) do
-    optional(state, :list_label_values, [state.fallback_state, label_key], [])
+  def list_label_values(state, label_key, opts \\ []) do
+    optional_with_legacy_opts(
+      state,
+      :list_label_values,
+      [state.fallback_state, label_key, opts],
+      [state.fallback_state, label_key],
+      []
+    )
   end
 
   defp graph_labels(meta) when is_map(meta) do
@@ -158,6 +178,19 @@ defmodule TimelessUI.MetricsDataPlane.CanvasSource do
       apply(state.fallback, function, args)
     else
       default
+    end
+  end
+
+  defp optional_with_legacy_opts(state, function, args, legacy_args, default) do
+    cond do
+      function_exported?(state.fallback, function, length(args)) ->
+        apply(state.fallback, function, args)
+
+      function_exported?(state.fallback, function, length(legacy_args)) ->
+        apply(state.fallback, function, legacy_args)
+
+      true ->
+        default
     end
   end
 

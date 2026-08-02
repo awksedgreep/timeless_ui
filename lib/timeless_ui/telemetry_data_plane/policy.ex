@@ -27,18 +27,11 @@ defmodule TimelessUI.TelemetryDataPlane.Policy do
 
   @impl true
   def init(opts) do
-    with {:ok, planes} <- validate_planes(opts) do
-      {:ok, %{planes: planes, tokens: %{}, ready?: false, error: nil}, {:continue, :publish}}
+    with {:ok, planes} <- validate_planes(opts),
+         :ok <- publish_all(planes) do
+      {:ok, %{planes: planes, tokens: %{}, ready?: true, error: nil}}
     else
-      {:error, reason} -> {:stop, reason}
-    end
-  end
-
-  @impl true
-  def handle_continue(:publish, state) do
-    case publish_all(state.planes) do
-      :ok -> {:noreply, %{state | ready?: true}}
-      {:error, reason} -> {:stop, {:telemetry_authorization_startup_failed, reason}, state}
+      {:error, reason} -> {:stop, {:telemetry_authorization_startup_failed, reason}}
     end
   end
 

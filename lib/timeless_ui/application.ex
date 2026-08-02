@@ -19,6 +19,7 @@ defmodule TimelessUI.Application do
       ] ++
         telemetry_policy_children(data_planes) ++
         telemetry_data_plane_children(data_planes) ++
+        logs_data_plane_buffer_children() ++
         [
           {DNSCluster, query: Application.get_env(:timeless_ui, :dns_cluster_query) || :ignore},
           {Phoenix.PubSub, name: TimelessUI.PubSub},
@@ -76,6 +77,20 @@ defmodule TimelessUI.Application do
 
       {TimelessUI.TelemetryDataPlane.Process, opts}
     end)
+  end
+
+  defp logs_data_plane_buffer_children do
+    case Application.get_env(:timeless_ui, :logs_data_plane_buffer, enabled: false) do
+      opts when is_list(opts) ->
+        if Keyword.get(opts, :enabled, false) do
+          [{TimelessUI.LogsDataPlane.Buffer, Keyword.delete(opts, :enabled)}]
+        else
+          []
+        end
+
+      false ->
+        []
+    end
   end
 
   # Tell Phoenix to update the endpoint configuration

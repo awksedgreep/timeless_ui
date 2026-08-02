@@ -179,6 +179,10 @@ defmodule TimelessUI.TelemetryAuthTest do
        ]}
     )
 
+    # The following OS-process child validates this file in its own init.
+    # Policy startup must not return before the atomic publication completes.
+    assert File.regular?(path)
+
     assert {:ok, {"authorization", "Bearer " <> token}} =
              RuntimePolicy.authorization_header(:traces, name)
 

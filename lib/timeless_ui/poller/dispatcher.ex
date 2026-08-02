@@ -127,13 +127,26 @@ defmodule TimelessUI.Poller.Dispatcher do
 
     case collector.execute(host, request, request.config || %{}, config) do
       {:ok, metrics} ->
-        MetricsWriter.write_metrics(metrics)
+        case MetricsWriter.write_metrics(metrics) do
+          :ok ->
+            :telemetry.execute([:poller, :job, :complete], %{metrics_count: length(metrics)}, %{
+              host: host.name,
+              request: request.name,
+              type: request.type
+            })
 
-        :telemetry.execute([:poller, :job, :complete], %{metrics_count: length(metrics)}, %{
-          host: host.name,
-          request: request.name,
-          type: request.type
-        })
+          {:error, reason} ->
+            Logger.warning(
+              "Poller result was not fully persisted: #{host.name}/#{request.name}: #{inspect(reason)}"
+            )
+
+            :telemetry.execute([:poller, :job, :error], %{count: 1}, %{
+              host: host.name,
+              request: request.name,
+              type: request.type,
+              reason: reason
+            })
+        end
 
       {:error, reason} ->
         Logger.debug("Poller job failed: #{host.name}/#{request.name}: #{inspect(reason)}")
