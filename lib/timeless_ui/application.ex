@@ -8,17 +8,20 @@ defmodule TimelessUI.Application do
 
   @impl true
   def start(_type, _args) do
-    children = [
-      TimelessUIWeb.Telemetry,
-      TimelessUI.Repo,
-      {Ecto.Migrator,
-       repos: Application.fetch_env!(:timeless_ui, :ecto_repos), skip: skip_migrations?()},
-      {DNSCluster, query: Application.get_env(:timeless_ui, :dns_cluster_query) || :ignore},
-      {Phoenix.PubSub, name: TimelessUI.PubSub},
-      TimelessCanvas.Supervisor,
-      {TimelessUI.Poller.Supervisor, Application.get_env(:timeless_ui, :poller, enabled: false)},
-      TimelessUIWeb.Endpoint
-    ]
+    children =
+      metrics_data_plane_children() ++
+        [
+          TimelessUIWeb.Telemetry,
+          TimelessUI.Repo,
+          {Ecto.Migrator,
+           repos: Application.fetch_env!(:timeless_ui, :ecto_repos), skip: skip_migrations?()},
+          {DNSCluster, query: Application.get_env(:timeless_ui, :dns_cluster_query) || :ignore},
+          {Phoenix.PubSub, name: TimelessUI.PubSub},
+          TimelessCanvas.Supervisor,
+          {TimelessUI.Poller.Supervisor,
+           Application.get_env(:timeless_ui, :poller, enabled: false)},
+          TimelessUIWeb.Endpoint
+        ]
 
     # See https://hexdocs.pm/elixir/Supervisor.html
     # for other strategies and supported options
@@ -31,6 +34,16 @@ defmodule TimelessUI.Application do
     end
 
     result
+  end
+
+  defp metrics_data_plane_children do
+    config = Application.get_env(:timeless_ui, :metrics_data_plane, enabled: false)
+
+    if Keyword.get(config, :enabled, false) do
+      [{TimelessUI.MetricsDataPlane.Process, Keyword.delete(config, :enabled)}]
+    else
+      []
+    end
   end
 
   # Tell Phoenix to update the endpoint configuration

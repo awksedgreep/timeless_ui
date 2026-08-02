@@ -25,6 +25,10 @@ config :timeless_ui,
   ecto_repos: [TimelessUI.Repo],
   generators: [timestamp_type: :utc_datetime]
 
+# The standalone Rust metrics data plane is opt-in. When enabled, this app
+# supervises its OS process but never opens the telemetry database itself.
+config :timeless_ui, :metrics_data_plane, enabled: false
+
 # Configure the endpoint
 config :timeless_ui, TimelessUIWeb.Endpoint,
   url: [host: "localhost"],
