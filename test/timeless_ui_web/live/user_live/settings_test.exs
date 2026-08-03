@@ -61,9 +61,12 @@ defmodule TimelessUIWeb.UserLive.SettingsTest do
 
       new_password_conn = follow_trigger_action(form, conn)
 
-      assert redirected_to(new_password_conn) == ~p"/users/settings"
+      assert redirected_to(new_password_conn) == ~p"/canvas"
       assert get_session(new_password_conn, :user_token) != get_session(conn, :user_token)
-      assert Phoenix.Flash.get(new_password_conn.assigns.flash, :info) =~ "Welcome back!"
+
+      assert Phoenix.Flash.get(new_password_conn.assigns.flash, :info) =~
+               "Password updated successfully"
+
       assert Accounts.get_user_by_username_and_password(user.username, new_password)
     end
 

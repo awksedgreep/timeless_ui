@@ -63,6 +63,13 @@ defmodule TimelessUIWeb.UserLive.Settings do
       |> assign(:password_form, to_form(password_changeset))
       |> assign(:trigger_submit, false)
 
+    socket =
+      if user.must_change_password do
+        put_flash(socket, :info, "Please change the default password before continuing.")
+      else
+        socket
+      end
+
     {:ok, socket}
   end
 
