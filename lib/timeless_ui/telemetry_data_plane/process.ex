@@ -233,7 +233,8 @@ defmodule TimelessUI.TelemetryDataPlane.Process do
          {:ok, listen} <-
            loopback_listener(
              Keyword.get(opts, :listen, "127.0.0.1:#{@signals[signal].port}"),
-             signal
+             signal,
+             Keyword.get(opts, :allow_non_loopback, false)
            ),
          {:ok, auth} <- auth_options(opts, signal),
          {:ok, kill_executable} <- shutdown_executable(signal) do
@@ -330,10 +331,10 @@ defmodule TimelessUI.TelemetryDataPlane.Process do
     end
   end
 
-  defp loopback_listener(listen, signal) when is_binary(listen) do
+  defp loopback_listener(listen, signal, allow_non_loopback) when is_binary(listen) do
     with [host, port_text] <- String.split(listen, ":", parts: 2),
          {:ok, address} <- :inet.parse_address(String.to_charlist(host)),
-         true <- loopback_address?(address),
+         true <- allow_non_loopback or loopback_address?(address),
          {port, ""} when port in 1..65_535 <- Integer.parse(port_text) do
       {:ok, "#{host}:#{port}"}
     else
@@ -341,7 +342,7 @@ defmodule TimelessUI.TelemetryDataPlane.Process do
     end
   end
 
-  defp loopback_listener(listen, signal),
+  defp loopback_listener(listen, signal, _allow_non_loopback),
     do: {:error, {:data_plane_must_use_loopback, signal, listen}}
 
   defp loopback_address?({127, _, _, _}), do: true

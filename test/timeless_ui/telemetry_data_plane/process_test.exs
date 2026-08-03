@@ -78,6 +78,20 @@ defmodule TimelessUI.TelemetryDataPlane.ProcessTest do
     assert {:error, %{state: :corruption}} = DataPlaneProcess.await_ready(name)
   end
 
+  test "an explicit container bind permits non-loopback listeners", fixture do
+    name = :container_bind_fixture
+
+    opts =
+      base_options(fixture, :metrics, name,
+        listen: "0.0.0.0:#{free_port()}",
+        data_dir: Path.join(fixture.root, "container-bind"),
+        allow_non_loopback: true
+      )
+
+    start_supervised!({DataPlaneProcess, opts})
+    assert {:ok, "http://0.0.0.0:" <> _} = DataPlaneProcess.await_ready(name)
+  end
+
   test "abnormal child death restarts while normal shutdown drains and reaps", fixture do
     name = :restarting_data_plane_fixture
     opts = base_options(fixture, :traces, name, data_dir: Path.join(fixture.root, "restart"))
