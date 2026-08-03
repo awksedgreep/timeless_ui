@@ -107,6 +107,25 @@ defmodule TimelessUI.Poller.Dispatcher do
   end
 
   defp execute_job(%{host: host, request: request}) do
+    if request.type == "prometheus" and rust_prometheus_owner?() do
+      Logger.debug(
+        "Skipping #{request.name} for #{host.name}: Rust target manager owns Prometheus scraping"
+      )
+
+      :telemetry.execute([:poller, :job, :skipped], %{count: 1}, %{
+        host: host.name,
+        request: request.name,
+        type: request.type,
+        reason: :rust_owner
+      })
+
+      :ok
+    else
+      execute_job_owned(%{host: host, request: request})
+    end
+  end
+
+  defp execute_job_owned(%{host: host, request: request}) do
     :telemetry.execute([:poller, :job, :start], %{count: 1}, %{
       host: host.name,
       request: request.name,
@@ -116,6 +135,9 @@ defmodule TimelessUI.Poller.Dispatcher do
     collector = collector_for_type(request.type)
     run_collector(collector, host, request)
   end
+
+  defp rust_prometheus_owner?,
+    do: Application.get_env(:timeless_ui, :metrics_scraper_mode, :embedded) == :rust
 
   defp run_collector(nil, host, request) do
     Logger.warning(

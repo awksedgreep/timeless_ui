@@ -19,6 +19,7 @@ defmodule TimelessUI.Application do
       ] ++
         telemetry_policy_children(data_planes) ++
         telemetry_data_plane_children(data_planes) ++
+        prometheus_target_sync_children() ++
         logs_data_plane_buffer_children() ++
         [
           {DNSCluster, query: Application.get_env(:timeless_ui, :dns_cluster_query) || :ignore},
@@ -46,6 +47,14 @@ defmodule TimelessUI.Application do
 
       error ->
         error
+    end
+  end
+
+  defp prometheus_target_sync_children do
+    if Application.get_env(:timeless_ui, :metrics_scraper_mode, :embedded) == :rust do
+      [TimelessUI.PrometheusTargets.Sync]
+    else
+      []
     end
   end
 

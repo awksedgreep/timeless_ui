@@ -31,6 +31,21 @@ defmodule TimelessUI.MetricsDataPlane.Client do
     expect_empty_success(:post, "/api/v1/import/prometheus", body, opts)
   end
 
+  def scrape_targets(opts \\ []), do: json_request(:get, "/api/v1/scrape/targets", opts)
+
+  def replace_scrape_targets(payload, opts \\ []) when is_map(payload) do
+    case raw_request(:put, "/api/v1/scrape/targets", json_body(opts, payload)) do
+      {:ok, 204, ""} ->
+        :ok
+
+      {:ok, status, response_body} ->
+        {:error, {:unexpected_response, status, excerpt(response_body)}}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
   def latest(metric, labels \\ %{}, opts \\ [])
       when is_binary(metric) and is_map(labels) do
     params = labels |> Map.put("metric", metric)
