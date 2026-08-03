@@ -10,6 +10,7 @@ defmodule TimelessUI.Poller.Dispatcher do
   require Logger
 
   alias TimelessUI.Poller.MetricsWriter
+  alias TimelessUI.MetricsDataPlane.Client, as: MetricsDataPlaneClient
 
   alias TimelessUI.Poller.Collectors.{
     IcmpCollector,
@@ -125,7 +126,15 @@ defmodule TimelessUI.Poller.Dispatcher do
   defp run_collector(collector, host, request) do
     config = Application.get_env(:timeless_ui, :poller, [])
 
-    case collector.execute(host, request, request.config || %{}, config) do
+    result =
+      if request.type == "prometheus" and
+           Application.get_env(:timeless_ui, :metrics_scraper_mode, :embedded) == :rust do
+        run_rust_prometheus_scrape(host, request, config)
+      else
+        collector.execute(host, request, request.config || %{}, config)
+      end
+
+    case result do
       {:ok, metrics} ->
         case MetricsWriter.write_metrics(metrics) do
           :ok ->
@@ -157,6 +166,24 @@ defmodule TimelessUI.Poller.Dispatcher do
           type: request.type,
           reason: reason
         })
+    end
+  end
+
+  defp run_rust_prometheus_scrape(host, request, config) do
+    case PrometheusCollector.execute_raw(host, request, request.config || %{}, config) do
+      {:ok, body} ->
+        case MetricsDataPlaneClient.import_prometheus(body) do
+          :ok -> {:ok, []}
+          {:error, reason} -> {:error, {:prometheus_import, reason}}
+        end
+
+      {:error, reason} ->
+        case MetricsWriter.write_metrics([
+               PrometheusCollector.failure_metric(host, System.system_time(:millisecond))
+             ]) do
+          :ok -> {:error, {:prometheus_scrape, reason}}
+          {:error, write_reason} -> {:error, {:prometheus_scrape, reason, write_reason}}
+        end
     end
   end
 

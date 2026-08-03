@@ -67,6 +67,40 @@ defmodule TimelessUI.Poller.Collectors.PrometheusCollector do
       {:ok, [scrape_failure_metric(host, System.system_time(:millisecond))]}
   end
 
+  @doc "Fetch raw exposition bytes for the Rust parser path."
+  def execute_raw(host, _request, config, opts \\ []) do
+    timeout = Keyword.get(opts, :prometheus_timeout_ms, 5_000)
+    scheme = get_config(config, :scheme, "http")
+    port = get_config(config, :port, default_port(scheme))
+    path = get_config(config, :path, "/metrics")
+    target = host.ip || host.name
+    url = "#{scheme}://#{target}:#{port}#{path}"
+
+    req_opts = [
+      connect_options: [timeout: timeout],
+      receive_timeout: timeout,
+      decode_body: false
+    ]
+
+    req_opts = maybe_add_auth(req_opts, config["auth"])
+
+    case Req.get(url, req_opts) do
+      {:ok, %{status: 200, body: body}} when is_binary(body) ->
+        {:ok, body}
+
+      {:ok, %{status: status}} ->
+        {:error, {:http_status, status, host.name}}
+
+      {:error, reason} ->
+        {:error, {:transport, reason}}
+    end
+  rescue
+    error -> {:error, {:scrape, host.name, Exception.message(error)}}
+  end
+
+  @doc false
+  def failure_metric(host, ts), do: scrape_failure_metric(host, ts)
+
   # Private Functions
 
   defp default_port("https"), do: 443
