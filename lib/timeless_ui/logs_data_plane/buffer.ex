@@ -1,10 +1,9 @@
 defmodule TimelessUI.LogsDataPlane.Buffer do
   @moduledoc """
-  Bounded transport buffer for Logger events sent to the Rust logs process.
-
-  The 8,192-entry limit matches the extension's authoritative block batch.
-  This process neither compresses nor writes storage; every flush uses the
-  public NDJSON API and the timeless-libsql extension retains block ownership.
+  Small bounded transport buffer for Logger events sent to the Rust logs
+  process. It is deliberately smaller than the Rust extension's authoritative
+  8,192-entry storage batch: this process only protects the BEAM transport and
+  never chooses storage block boundaries, compresses, or writes storage.
   """
 
   use GenServer
@@ -12,11 +11,10 @@ defmodule TimelessUI.LogsDataPlane.Buffer do
   alias TimelessUI.LogsDataPlane.Client
   alias TimelessUI.LogsDataPlane.LoggerHandler
 
-  @extension_batch_size 8_192
+  @transport_batch_size 256
   @default_flush_interval 1_000
 
   def start_link(opts) do
-    validate_max_entries!(opts)
     GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
   end
 
@@ -27,7 +25,7 @@ defmodule TimelessUI.LogsDataPlane.Buffer do
   @impl true
   def init(opts) do
     Process.flag(:trap_exit, true)
-    max_entries = Keyword.get(opts, :max_entries, @extension_batch_size)
+    max_entries = Keyword.get(opts, :max_entries, @transport_batch_size)
 
     state = %{
       entries: [],
@@ -151,11 +149,4 @@ defmodule TimelessUI.LogsDataPlane.Buffer do
   end
 
   defp schedule_flush(interval), do: Process.send_after(self(), :flush, interval)
-
-  defp validate_max_entries!(opts) do
-    if Keyword.get(opts, :max_entries, @extension_batch_size) != @extension_batch_size do
-      raise ArgumentError,
-            "logs transport max_entries must remain the authoritative 8,192-entry extension batch"
-    end
-  end
 end
