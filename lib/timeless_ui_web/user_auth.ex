@@ -37,7 +37,7 @@ defmodule TimelessUIWeb.UserAuth do
 
     conn
     |> create_or_extend_session(user, params)
-    |> redirect(to: user_return_to || signed_in_path(conn))
+    |> redirect(to: user_return_to || signed_in_path(user))
   end
 
   @doc """
@@ -273,13 +273,8 @@ defmodule TimelessUIWeb.UserAuth do
   end
 
   @doc "Returns the path to redirect to after log in."
-  def signed_in_path(_) do
-    if System.get_env("TIMELESS_ADMIN_PASSWORD") do
-      "/canvas"
-    else
-      ~p"/users/settings"
-    end
-  end
+  def signed_in_path(%Accounts.User{must_change_password: true}), do: ~p"/users/settings"
+  def signed_in_path(_), do: "/canvas"
 
   @doc """
   Plug for routes that require the user to be authenticated.

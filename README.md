@@ -79,6 +79,30 @@ The scheduler ticks every minute, evaluates cron expressions, resolves host x re
 | `:icmp_count` | `1` | Number of pings per host |
 | `:metrics_store` | `:timeless_metrics` | TimelessMetrics store name |
 
+## Rust/libSQL telemetry data plane
+
+The production Stack starts three signal-specific Rust OS processes for
+metrics, logs, and traces. Each process exclusively owns its `timeless-libsql`
+database; Phoenix owns sessions, token issuance, authorization policy,
+tenancy, Canvas, dashboards, poller policy, cluster administration, and UI
+state. Startup detects or converts legacy storage before a child becomes
+ready. There is no per-request fallback to Rocket or an embedded storage
+owner.
+
+The listeners default to IPv4 loopback. UI clients own no SQLite/libSQL
+connection and reject incomplete or invalid responses as one failed
+operation. On normal OTP shutdown the logs producer drains first, then each
+owner receives `SIGTERM`, flushes accepted work, checkpoints, and exits. The
+supervisor bounds escalation/restart and reaps every child.
+
+`timeless_stack` supplies the production configuration and defaults to
+`TIMELESS_DATA_PLANE=rust`. See its
+`docs/telemetry_data_plane_compatibility.md` for supported query/ingest
+surfaces and `docs/telemetry_data_plane_operations.md` for migration, backup,
+restore, rollback, and cleanup. Direct component development may still enable
+one owner explicitly in application config; that is a test/development seam,
+not a second production ownership model.
+
 ## Deployment
 
 See the [Phoenix deployment guides](https://hexdocs.pm/phoenix/deployment.html).

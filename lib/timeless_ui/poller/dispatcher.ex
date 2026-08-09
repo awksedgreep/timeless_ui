@@ -10,6 +10,7 @@ defmodule TimelessUI.Poller.Dispatcher do
   require Logger
 
   alias TimelessUI.Poller.MetricsWriter
+  alias TimelessUI.MetricsDataPlane.Client, as: MetricsDataPlaneClient
 
   alias TimelessUI.Poller.Collectors.{
     IcmpCollector,
@@ -106,6 +107,25 @@ defmodule TimelessUI.Poller.Dispatcher do
   end
 
   defp execute_job(%{host: host, request: request}) do
+    if request.type == "prometheus" and rust_prometheus_owner?() do
+      Logger.debug(
+        "Skipping #{request.name} for #{host.name}: Rust target manager owns Prometheus scraping"
+      )
+
+      :telemetry.execute([:poller, :job, :skipped], %{count: 1}, %{
+        host: host.name,
+        request: request.name,
+        type: request.type,
+        reason: :rust_owner
+      })
+
+      :ok
+    else
+      execute_job_owned(%{host: host, request: request})
+    end
+  end
+
+  defp execute_job_owned(%{host: host, request: request}) do
     :telemetry.execute([:poller, :job, :start], %{count: 1}, %{
       host: host.name,
       request: request.name,
@@ -116,6 +136,9 @@ defmodule TimelessUI.Poller.Dispatcher do
     run_collector(collector, host, request)
   end
 
+  defp rust_prometheus_owner?,
+    do: Application.get_env(:timeless_ui, :metrics_scraper_mode, :embedded) == :rust
+
   defp run_collector(nil, host, request) do
     Logger.warning(
       "Skipping job #{request.name} for #{host.name}: no collector for type #{request.type}"
@@ -125,15 +148,36 @@ defmodule TimelessUI.Poller.Dispatcher do
   defp run_collector(collector, host, request) do
     config = Application.get_env(:timeless_ui, :poller, [])
 
-    case collector.execute(host, request, request.config || %{}, config) do
-      {:ok, metrics} ->
-        MetricsWriter.write_metrics(metrics)
+    result =
+      if request.type == "prometheus" and
+           Application.get_env(:timeless_ui, :metrics_scraper_mode, :embedded) == :rust do
+        run_rust_prometheus_scrape(host, request, config)
+      else
+        collector.execute(host, request, request.config || %{}, config)
+      end
 
-        :telemetry.execute([:poller, :job, :complete], %{metrics_count: length(metrics)}, %{
-          host: host.name,
-          request: request.name,
-          type: request.type
-        })
+    case result do
+      {:ok, metrics} ->
+        case MetricsWriter.write_metrics(metrics) do
+          :ok ->
+            :telemetry.execute([:poller, :job, :complete], %{metrics_count: length(metrics)}, %{
+              host: host.name,
+              request: request.name,
+              type: request.type
+            })
+
+          {:error, reason} ->
+            Logger.warning(
+              "Poller result was not fully persisted: #{host.name}/#{request.name}: #{inspect(reason)}"
+            )
+
+            :telemetry.execute([:poller, :job, :error], %{count: 1}, %{
+              host: host.name,
+              request: request.name,
+              type: request.type,
+              reason: reason
+            })
+        end
 
       {:error, reason} ->
         Logger.debug("Poller job failed: #{host.name}/#{request.name}: #{inspect(reason)}")
@@ -144,6 +188,24 @@ defmodule TimelessUI.Poller.Dispatcher do
           type: request.type,
           reason: reason
         })
+    end
+  end
+
+  defp run_rust_prometheus_scrape(host, request, config) do
+    case PrometheusCollector.execute_raw(host, request, request.config || %{}, config) do
+      {:ok, body} ->
+        case MetricsDataPlaneClient.import_prometheus(body) do
+          :ok -> {:ok, []}
+          {:error, reason} -> {:error, {:prometheus_import, reason}}
+        end
+
+      {:error, reason} ->
+        case MetricsWriter.write_metrics([
+               PrometheusCollector.failure_metric(host, System.system_time(:millisecond))
+             ]) do
+          :ok -> {:error, {:prometheus_scrape, reason}}
+          {:error, write_reason} -> {:error, {:prometheus_scrape, reason, write_reason}}
+        end
     end
   end
 

@@ -1,0 +1,151 @@
+defmodule TimelessUI.MetricsDataPlane.ClientTest do
+  use ExUnit.Case, async: true
+
+  alias TimelessUI.MetricsDataPlane.Client
+
+  test "backup sends an absolute destination to the maintenance endpoint" do
+    request = fn options ->
+      send(self(), {:backup_request, options})
+      {:ok, %{status: 200, body: ~s({"signal":"metrics","bytes":42})}}
+    end
+
+    assert {:ok, %{"signal" => "metrics", "bytes" => 42}} =
+             Client.backup("/backup/metrics.db",
+               base_url: "http://127.0.0.1:19439",
+               request: request
+             )
+
+    assert_received {:backup_request, options}
+    assert options[:method] == :post
+    assert options[:url] == "http://127.0.0.1:19439/api/v1/backup"
+    assert Jason.decode!(options[:body]) == %{"destination" => "/backup/metrics.db"}
+  end
+
+  test "exposes the declared native, discovery, and PromQL routes" do
+    request = fn options ->
+      send(self(), {:request_options, options})
+      {:ok, %{status: 200, body: ~s({"status":"success","data":[]})}}
+    end
+
+    opts = [base_url: "http://127.0.0.1:19439", request: request]
+
+    assert {:ok, []} = Client.labels(opts)
+    assert_received {:request_options, labels}
+    assert labels[:url] == "http://127.0.0.1:19439/api/v1/labels"
+
+    assert {:ok, []} = Client.label_values("host", %{"metric" => "cpu"}, opts)
+    assert_received {:request_options, values}
+    assert values[:params] == %{"metric" => "cpu"}
+
+    assert {:ok, %{"status" => "success"}} =
+             Client.prometheus_instant("cpu{host=\"edge\"}", 10, opts)
+
+    assert_received {:request_options, promql}
+    assert promql[:params] == %{"query" => "cpu{host=\"edge\"}", "time" => 10}
+  end
+
+  test "decodes a complete Victoria export into millisecond Canvas points" do
+    body =
+      Jason.encode!(%{
+        "metric" => %{"__name__" => "cpu", "host" => "edge"},
+        "timestamps" => [1_000, 2_000],
+        "values" => [1, 2.5]
+      })
+
+    endpoint = serve_once(body)
+
+    assert {:ok,
+            [
+              %{
+                metric: "cpu",
+                labels: %{"host" => "edge"},
+                points: [{1_000, 1.0}, {2_000, 2.5}]
+              }
+            ]} = Client.export("cpu", %{"host" => "edge"}, 1, 2, base_url: endpoint)
+  end
+
+  test "rejects a truncated JSON body as one failed operation" do
+    endpoint = serve_once(~s({"metric":))
+
+    assert {:error, {:invalid_response, _reason}} =
+             Client.export("cpu", %{}, 1, 2, base_url: endpoint)
+  end
+
+  test "rejects a connection closed before the declared response is complete" do
+    endpoint = serve_once(~s({"metric":), 1_024)
+
+    assert {:error, {:transport, _reason}} =
+             Client.export("cpu", %{}, 1, 2, base_url: endpoint)
+  end
+
+  test "rejects all rows when a later NDJSON row is invalid" do
+    first =
+      Jason.encode!(%{
+        "metric" => %{"__name__" => "cpu", "host" => "edge"},
+        "timestamps" => [1_000],
+        "values" => [1.0]
+      })
+
+    endpoint = serve_once(first <> "\n" <> ~s({"metric":))
+
+    assert {:error, {:invalid_response, _reason}} =
+             Client.export("cpu", %{}, 1, 2, base_url: endpoint)
+  end
+
+  test "rejects a non-loopback endpoint before opening a connection" do
+    assert {:error, {:metrics_data_plane_must_use_loopback, "http://192.0.2.1:19439"}} =
+             Client.export("cpu", %{}, 1, 2, base_url: "http://192.0.2.1:19439")
+  end
+
+  test "process-backed calls use its short-lived token and replace caller credentials" do
+    token = "header.payload.signature"
+    endpoint = serve_once("{}", nil, self())
+    name = {:global, {:metrics_client_process, System.unique_integer([:positive])}}
+
+    start_supervised!(
+      {TimelessUI.MetricsDataPlaneProcessFixture, name: name, endpoint: endpoint, token: token}
+    )
+
+    assert {:ok, %{}} =
+             Client.health(
+               process: name,
+               headers: [{"authorization", "Bearer caller-must-not-win"}]
+             )
+
+    assert_receive {:request, request}
+    assert String.downcase(request) =~ "authorization: bearer #{token}"
+    refute request =~ "caller-must-not-win"
+  end
+
+  defp serve_once(body, declared_length \\ nil, notify \\ nil) do
+    declared_length = declared_length || byte_size(body)
+
+    {:ok, listener} =
+      :gen_tcp.listen(0, [:binary, active: false, reuseaddr: true, ip: {127, 0, 0, 1}])
+
+    {:ok, {_address, port}} = :inet.sockname(listener)
+
+    start_supervised!(
+      {Task,
+       fn ->
+         {:ok, socket} = :gen_tcp.accept(listener)
+         {:ok, request} = :gen_tcp.recv(socket, 0, 5_000)
+         if is_pid(notify), do: send(notify, {:request, request})
+
+         response = [
+           "HTTP/1.1 200 OK\r\n",
+           "content-type: application/x-ndjson\r\n",
+           "content-length: #{declared_length}\r\n",
+           "connection: close\r\n\r\n",
+           body
+         ]
+
+         :ok = :gen_tcp.send(socket, response)
+         :gen_tcp.close(socket)
+         :gen_tcp.close(listener)
+       end}
+    )
+
+    "http://127.0.0.1:#{port}"
+  end
+end

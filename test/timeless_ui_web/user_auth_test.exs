@@ -25,8 +25,16 @@ defmodule TimelessUIWeb.UserAuthTest do
       conn = UserAuth.log_in_user(conn, user)
       assert token = get_session(conn, :user_token)
       assert get_session(conn, :live_socket_id) == "users_sessions:#{Base.url_encode64(token)}"
-      assert redirected_to(conn) == ~p"/users/settings"
+      assert redirected_to(conn) == ~p"/canvas"
       assert Accounts.get_user_by_session_token(token)
+    end
+
+    test "redirects to settings when the user must change their password", %{
+      conn: conn,
+      user: user
+    } do
+      conn = UserAuth.log_in_user(conn, %{user | must_change_password: true})
+      assert redirected_to(conn) == ~p"/users/settings"
     end
 
     test "clears everything previously stored in the session", %{conn: conn, user: user} do
@@ -74,13 +82,13 @@ defmodule TimelessUIWeb.UserAuthTest do
       assert max_age == @remember_me_cookie_max_age
     end
 
-    test "redirects to settings when user is already logged in", %{conn: conn, user: user} do
+    test "redirects to canvas when user is already logged in", %{conn: conn, user: user} do
       conn =
         conn
         |> assign(:current_scope, Scope.for_user(user))
         |> UserAuth.log_in_user(user)
 
-      assert redirected_to(conn) == ~p"/users/settings"
+      assert redirected_to(conn) == ~p"/canvas"
     end
 
     test "writes a cookie if remember_me was set in previous session", %{conn: conn, user: user} do

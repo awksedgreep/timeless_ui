@@ -59,7 +59,8 @@ defmodule TimelessUI.Accounts do
             username: username,
             hashed_password: Bcrypt.hash_pwd_salt(password),
             role: "admin",
-            confirmed_at: now
+            confirmed_at: now,
+            must_change_password: System.get_env("TIMELESS_ADMIN_PASSWORD") == nil
           })
           |> Repo.insert()
 

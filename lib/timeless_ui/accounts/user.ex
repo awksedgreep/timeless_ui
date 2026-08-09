@@ -7,6 +7,7 @@ defmodule TimelessUI.Accounts.User do
     field :password, :string, virtual: true, redact: true
     field :hashed_password, :string, redact: true
     field :role, :string, default: "viewer"
+    field :must_change_password, :boolean, default: false
     field :confirmed_at, :utc_datetime
     field :authenticated_at, :utc_datetime, virtual: true
 
@@ -36,6 +37,7 @@ defmodule TimelessUI.Accounts.User do
     |> cast(attrs, [:password])
     |> validate_confirmation(:password, message: "does not match password")
     |> validate_password(opts)
+    |> put_change(:must_change_password, false)
   end
 
   defp validate_password(changeset, opts) do

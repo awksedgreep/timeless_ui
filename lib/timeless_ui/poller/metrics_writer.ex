@@ -1,9 +1,9 @@
 defmodule TimelessUI.Poller.MetricsWriter do
   @moduledoc """
-  Bridge between poller collectors and TimelessMetrics storage.
+  Bridge between poller collectors and the configured metrics adapter.
 
-  Converts collector metric maps to TimelessMetrics.write_batch/2 format.
-  Uses apply/3 to avoid compile-time dependency on TimelessMetrics.
+  Production selects the Rust data plane. The embedded adapter remains
+  available only for the documented offline rollback mode.
   """
 
   require Logger
@@ -16,6 +16,20 @@ defmodule TimelessUI.Poller.MetricsWriter do
   for `TimelessMetrics.write_batch/2`.
   """
   def write_metrics(metrics, opts \\ []) do
+    writer = Keyword.get(opts, :writer, metrics_writer())
+
+    case writer do
+      __MODULE__ -> write_embedded(metrics, opts)
+      module when is_atom(module) -> module.write_metrics(metrics, opts)
+    end
+  rescue
+    error ->
+      Logger.error("Failed to write metrics through configured adapter: #{inspect(error)}")
+      {:error, error}
+  end
+
+  @doc false
+  def write_embedded(metrics, opts \\ []) do
     store = Keyword.get(opts, :store, metrics_store())
 
     {text_metrics, numeric_metrics} =
@@ -60,6 +74,11 @@ defmodule TimelessUI.Poller.MetricsWriter do
     end
 
     :ok
+  end
+
+  defp metrics_writer do
+    config = Application.get_env(:timeless_ui, :poller, [])
+    Keyword.get(config, :metrics_writer, __MODULE__)
   end
 
   defp metrics_store do

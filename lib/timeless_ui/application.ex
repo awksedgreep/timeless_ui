@@ -8,29 +8,105 @@ defmodule TimelessUI.Application do
 
   @impl true
   def start(_type, _args) do
-    children = [
-      TimelessUIWeb.Telemetry,
-      TimelessUI.Repo,
-      {Ecto.Migrator,
-       repos: Application.fetch_env!(:timeless_ui, :ecto_repos), skip: skip_migrations?()},
-      {DNSCluster, query: Application.get_env(:timeless_ui, :dns_cluster_query) || :ignore},
-      {Phoenix.PubSub, name: TimelessUI.PubSub},
-      TimelessCanvas.Supervisor,
-      {TimelessUI.Poller.Supervisor, Application.get_env(:timeless_ui, :poller, enabled: false)},
-      TimelessUIWeb.Endpoint
-    ]
+    data_planes = telemetry_data_planes()
+
+    children =
+      [
+        TimelessUIWeb.Telemetry,
+        TimelessUI.Repo,
+        {Ecto.Migrator,
+         repos: Application.fetch_env!(:timeless_ui, :ecto_repos), skip: skip_migrations?()}
+      ] ++
+        telemetry_policy_children(data_planes) ++
+        telemetry_data_plane_children(data_planes) ++
+        prometheus_target_sync_children() ++
+        logs_data_plane_buffer_children() ++
+        [
+          {DNSCluster, query: Application.get_env(:timeless_ui, :dns_cluster_query) || :ignore},
+          {Phoenix.PubSub, name: TimelessUI.PubSub},
+          TimelessCanvas.Supervisor,
+          {TimelessUI.Poller.Supervisor,
+           Application.get_env(:timeless_ui, :poller, enabled: false)},
+          TimelessUIWeb.Endpoint
+        ]
 
     # See https://hexdocs.pm/elixir/Supervisor.html
     # for other strategies and supported options
     opts = [strategy: :one_for_one, name: TimelessUI.Supervisor]
-    result = Supervisor.start_link(children, opts)
 
-    case TimelessUI.Accounts.ensure_admin_user() do
-      :created -> Logger.info("Default admin user created")
-      :exists -> :ok
+    case Supervisor.start_link(children, opts) do
+      {:ok, _pid} = result ->
+        accounts = Application.get_env(:timeless_ui, :accounts_module, TimelessUI.Accounts)
+
+        case accounts.ensure_admin_user() do
+          :created -> Logger.info("Default admin user created")
+          :exists -> :ok
+        end
+
+        result
+
+      error ->
+        error
     end
+  end
 
-    result
+  defp prometheus_target_sync_children do
+    if Application.get_env(:timeless_ui, :metrics_scraper_mode, :embedded) == :rust do
+      [TimelessUI.PrometheusTargets.Sync]
+    else
+      []
+    end
+  end
+
+  defp telemetry_data_planes do
+    configured = Application.get_env(:timeless_ui, :telemetry_data_planes, [])
+    config = Application.get_env(:timeless_ui, :metrics_data_plane, enabled: false)
+
+    legacy_metrics =
+      if Keyword.get(config, :enabled, false),
+        do: [[signal: :metrics] ++ Keyword.delete(config, :enabled)],
+        else: []
+
+    configured ++ legacy_metrics
+  end
+
+  defp telemetry_policy_children(data_planes) do
+    if Enum.any?(data_planes, &(Keyword.get(&1, :auth_mode, :required) == :required)) do
+      [{TimelessUI.TelemetryDataPlane.Policy, planes: data_planes}]
+    else
+      []
+    end
+  end
+
+  defp telemetry_data_plane_children(data_planes) do
+    Enum.map(data_planes, fn opts ->
+      opts =
+        if Keyword.get(opts, :auth_mode, :required) == :required do
+          Keyword.put_new(
+            opts,
+            :token_provider,
+            {TimelessUI.TelemetryDataPlane.Policy, :authorization_header, []}
+          )
+        else
+          opts
+        end
+
+      {TimelessUI.TelemetryDataPlane.Process, opts}
+    end)
+  end
+
+  defp logs_data_plane_buffer_children do
+    case Application.get_env(:timeless_ui, :logs_data_plane_buffer, enabled: false) do
+      opts when is_list(opts) ->
+        if Keyword.get(opts, :enabled, false) do
+          [{TimelessUI.LogsDataPlane.Buffer, Keyword.delete(opts, :enabled)}]
+        else
+          []
+        end
+
+      false ->
+        []
+    end
   end
 
   # Tell Phoenix to update the endpoint configuration
