@@ -93,3 +93,16 @@ config :timeless_canvas,
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
 import_config "#{config_env()}.exs"
+
+# Observability dashboard pages read through the Rust data-plane clients —
+# the UI runs no embedded engines. The clients resolve endpoint and (when
+# auth is enabled) tokens from the supervised plane processes.
+config :timeless_logs_dashboard,
+       :historical_source,
+       {TimelessLogsDashboard.HistoricalSource.DataPlane,
+        client: TimelessUI.LogsDataPlane.Client}
+
+config :timeless_traces_dashboard,
+       :historical_source,
+       {TimelessTracesDashboard.HistoricalSource.DataPlane,
+        client: TimelessUI.TracesDataPlane.Client}

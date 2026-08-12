@@ -23,19 +23,14 @@ defmodule TimelessUIWeb.Router do
   #   pipe_through :api
   # end
 
-  # Enable LiveDashboard in development
+  # LiveDashboard moved to the authenticated admin scope below
+  # (/admin/observability) — it now carries the timeless logs and traces
+  # pages in every environment, so the unauthenticated dev-only mount is
+  # gone rather than duplicated.
   if Application.compile_env(:timeless_ui, :dev_routes) do
-    # If you want to use the LiveDashboard in production, you should put
-    # it behind authentication and allow only admins to access it.
-    # If your application does not have an admins-only section yet,
-    # you can use Plug.BasicAuth to set up some basic authentication
-    # as long as you are also using SSL (which you should anyway).
-    import Phoenix.LiveDashboard.Router
-
     scope "/dev" do
       pipe_through :browser
 
-      live_dashboard "/dashboard", metrics: TimelessUIWeb.Telemetry
       forward "/mailbox", Plug.Swoosh.MailboxPreview
     end
   end
@@ -66,6 +61,22 @@ defmodule TimelessUIWeb.Router do
     end
 
     post "/users/update-password", UserSessionController, :update_password
+  end
+
+  # Operational observability: LiveDashboard carrying the timeless logs and
+  # traces pages, reading through the data-plane clients. Admin-only — it
+  # exposes raw log content and store internals.
+  scope "/admin" do
+    pipe_through [:browser, :require_authenticated_user, :require_admin_user]
+
+    import Phoenix.LiveDashboard.Router
+
+    live_dashboard "/observability",
+      metrics: TimelessUIWeb.Telemetry,
+      additional_pages: [
+        logs: TimelessLogsDashboard.Page,
+        traces: TimelessTracesDashboard.Page
+      ]
   end
 
   scope "/", TimelessUIWeb do

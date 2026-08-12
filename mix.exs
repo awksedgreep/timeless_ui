@@ -4,7 +4,7 @@ defmodule TimelessUI.MixProject do
   def project do
     [
       app: :timeless_ui,
-      version: "0.9.12",
+      version: "0.9.13",
       elixir: "~> 1.15",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
@@ -51,6 +51,8 @@ defmodule TimelessUI.MixProject do
       {:phoenix_live_view, "~> 1.1.0"},
       {:lazy_html, ">= 0.1.0", only: :test},
       {:phoenix_live_dashboard, "~> 0.8.3"},
+      {:timeless_logs_dashboard, "~> 0.7.20"},
+      {:timeless_traces_dashboard, "~> 0.3.18"},
       {:esbuild, "~> 0.10", runtime: Mix.env() == :dev},
       {:tailwind, "~> 0.3", runtime: Mix.env() == :dev},
       {:heroicons,
