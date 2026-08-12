@@ -59,7 +59,7 @@ defmodule TimelessUI.TelemetryDataPlane.Process do
          config: config,
          port: nil,
          prepare_task: nil,
-         endpoint: "http://#{config.listen}",
+         endpoint: dial_endpoint(config.listen),
          phase: :starting,
          ready?: false,
          startup: nil,
@@ -328,6 +328,28 @@ defmodule TimelessUI.TelemetryDataPlane.Process do
     case Keyword.fetch(opts, name) do
       {:ok, value} when value not in [nil, ""] -> {:ok, value}
       _ -> {:error, {:missing_data_plane_option, signal, name}}
+    end
+  end
+
+  @doc """
+  The URL clients dial for a data plane listening on `listen`. A bind
+  address is not a destination: a server bound to all interfaces
+  (`0.0.0.0`/`::`) is still a local child of this supervisor, and clients
+  reach it over loopback. Passing the bind string through verbatim gave
+  containers (which must bind `0.0.0.0`) an endpoint every client's
+  loopback guard rejected — target sync and queries failed with
+  `*_must_use_loopback` on exactly the primary deployment path.
+  """
+  def dial_endpoint(listen) do
+    cond do
+      String.starts_with?(listen, "0.0.0.0:") ->
+        "http://127.0.0.1:" <> String.trim_leading(listen, "0.0.0.0:")
+
+      String.starts_with?(listen, "[::]:") ->
+        "http://[::1]:" <> String.trim_leading(listen, "[::]:")
+
+      true ->
+        "http://#{listen}"
     end
   end
 

@@ -89,7 +89,9 @@ defmodule TimelessUI.TelemetryDataPlane.ProcessTest do
       )
 
     start_supervised!({DataPlaneProcess, opts})
-    assert {:ok, "http://0.0.0.0:" <> _} = DataPlaneProcess.await_ready(name)
+    # The plane BINDS 0.0.0.0, but the endpoint handed to clients dials
+      # loopback — a bind address is not a destination (dial_endpoint/1).
+      assert {:ok, "http://127.0.0.1:" <> _} = DataPlaneProcess.await_ready(name)
   end
 
   test "abnormal child death restarts while normal shutdown drains and reaps", fixture do
