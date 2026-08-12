@@ -71,7 +71,7 @@ defmodule TimelessUI.Application do
   end
 
   defp telemetry_policy_children(data_planes) do
-    if Enum.any?(data_planes, &(Keyword.get(&1, :auth_mode, :required) == :required)) do
+    if Enum.any?(data_planes, &(Keyword.get(&1, :auth_mode, :disabled) == :required)) do
       [{TimelessUI.TelemetryDataPlane.Policy, planes: data_planes}]
     else
       []
@@ -81,7 +81,7 @@ defmodule TimelessUI.Application do
   defp telemetry_data_plane_children(data_planes) do
     Enum.map(data_planes, fn opts ->
       opts =
-        if Keyword.get(opts, :auth_mode, :required) == :required do
+        if Keyword.get(opts, :auth_mode, :disabled) == :required do
           Keyword.put_new(
             opts,
             :token_provider,

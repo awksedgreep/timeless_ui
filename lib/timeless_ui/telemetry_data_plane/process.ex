@@ -280,7 +280,7 @@ defmodule TimelessUI.TelemetryDataPlane.Process do
   end
 
   defp auth_options(opts, signal) do
-    case Keyword.get(opts, :auth_mode, :required) do
+    case Keyword.get(opts, :auth_mode, :disabled) do
       :disabled ->
         {:ok, %{env: %{"TIMELESS_AUTH_MODE" => "disabled"}, token_provider: nil}}
 

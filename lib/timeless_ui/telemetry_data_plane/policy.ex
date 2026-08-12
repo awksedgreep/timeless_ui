@@ -115,7 +115,7 @@ defmodule TimelessUI.TelemetryDataPlane.Policy do
     |> Enum.reduce_while({:ok, %{}, MapSet.new()}, fn configured, {:ok, planes, paths} ->
       configured = normalize_options(configured)
 
-      with :required <- Keyword.get(configured, :auth_mode, :required),
+      with :required <- Keyword.get(configured, :auth_mode, :disabled),
            {:ok, signal} <- normalize_signal(Keyword.get(configured, :signal)),
            path when is_binary(path) and path != "" <- Keyword.get(configured, :auth_policy_path),
            false <- Map.has_key?(planes, signal),
