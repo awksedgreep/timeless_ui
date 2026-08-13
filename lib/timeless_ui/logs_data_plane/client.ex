@@ -23,6 +23,74 @@ defmodule TimelessUI.LogsDataPlane.Client do
   @query_keys ~w(level message service host path status start end limit offset order)a
 
   def health(opts \\ []), do: json_request(:get, "/health", opts)
+
+  @doc """
+  Live tail: streams entries matching one LogsQL filter expression from
+  `/select/logsql/tail`, sending `{:timeless_logs, :entry, entry}` messages
+  to `subscriber` — the same message shape the embedded engine's Registry
+  tail delivers, so consumers cannot tell the sources apart. Returns
+  `{:ok, pid}`; kill the pid to unsubscribe (the closed connection
+  unsubscribes server-side).
+  """
+  def tail(query, subscriber, opts \\ [])
+      when is_binary(query) and is_pid(subscriber) and is_list(opts) do
+    with {:ok, endpoint, owner_header} <- resolve_connection(opts) do
+      parent = subscriber
+
+      {:ok, pid} =
+        Task.start(fn ->
+          Req.request(
+            method: :get,
+            url: endpoint <> "/select/logsql/tail",
+            params: %{query: query},
+            headers: request_headers(opts, owner_header),
+            receive_timeout: :infinity,
+            retry: false,
+            decode_body: false,
+            into: fn {:data, chunk}, {req, resp} ->
+              if resp.status == 200 do
+                buffer = Process.get(:tail_buffer, "") <> chunk
+                {lines, rest} = split_complete_lines(buffer)
+                Process.put(:tail_buffer, rest)
+                Enum.each(lines, fn line ->
+                  case Jason.decode(line) do
+                    {:ok, row} when is_map(row) ->
+                      send(parent, {:timeless_logs, :entry, tail_entry(row)})
+
+                    _ ->
+                      :ok
+                  end
+                end)
+              end
+
+              {:cont, {req, resp}}
+            end
+          )
+        end)
+
+      {:ok, pid}
+    end
+  end
+
+  defp split_complete_lines(buffer) do
+    parts = String.split(buffer, "\n")
+    {complete, [rest]} = Enum.split(parts, length(parts) - 1)
+    {Enum.reject(complete, &(&1 == "")), rest}
+  end
+
+  defp tail_entry(row) do
+    {timestamp, row} = Map.pop(row, "_time")
+    {message, row} = Map.pop(row, "_msg", "")
+    {level, metadata} = Map.pop(row, "level", "info")
+
+    timestamp =
+      case is_binary(timestamp) && DateTime.from_iso8601(timestamp) do
+        {:ok, datetime, _offset} -> datetime
+        _ -> timestamp
+      end
+
+    %{timestamp: timestamp, level: level, message: message, metadata: metadata}
+  end
   def stats(opts \\ []), do: json_request(:get, "/select/logsql/stats", opts)
   def flush(opts \\ []), do: json_request(:get, "/api/v1/flush", opts)
 
