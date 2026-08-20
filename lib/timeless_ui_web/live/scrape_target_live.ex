@@ -44,7 +44,7 @@ defmodule TimelessUIWeb.ScrapeTargetLive do
       metrics_path: "/metrics",
       scrape_interval: "30",
       scrape_timeout: "10",
-      labels: "",
+      labels: [blank_label_row()],
       honor_labels: false,
       honor_timestamps: true,
       metric_relabel_configs: ""
@@ -59,7 +59,7 @@ defmodule TimelessUIWeb.ScrapeTargetLive do
       metrics_path: target.metrics_path || "/metrics",
       scrape_interval: to_string(target.scrape_interval || 30),
       scrape_timeout: to_string(target.scrape_timeout || 10),
-      labels: encode_json(target.labels),
+      labels: labels_to_rows(target.labels),
       honor_labels: bool_or(target.honor_labels, false),
       honor_timestamps: bool_or(target.honor_timestamps, true),
       metric_relabel_configs: encode_json(target.metric_relabel_configs)
@@ -76,11 +76,47 @@ defmodule TimelessUIWeb.ScrapeTargetLive do
       metrics_path: params["metrics_path"] || "/metrics",
       scrape_interval: params["scrape_interval"] || "30",
       scrape_timeout: params["scrape_timeout"] || "10",
-      labels: params["labels"] || "",
+      labels: params_to_label_rows(params["labels"]),
       honor_labels: params["honor_labels"] == "true",
       honor_timestamps: params["honor_timestamps"] == "true",
       metric_relabel_configs: params["metric_relabel_configs"] || ""
     }
+  end
+
+  defp blank_label_row, do: %{"key" => "", "value" => ""}
+
+  # A stored map becomes editable rows, always with one blank row on the end so
+  # there is somewhere to type without hunting for an "add" button first.
+  defp labels_to_rows(labels) when is_map(labels) and map_size(labels) > 0 do
+    labels
+    |> Enum.sort_by(fn {key, _} -> key end)
+    |> Enum.map(fn {key, value} -> %{"key" => key, "value" => to_string(value)} end)
+    |> Kernel.++([blank_label_row()])
+  end
+
+  defp labels_to_rows(_), do: [blank_label_row()]
+
+  # Rows arrive as %{"0" => %{"key" => ..., "value" => ...}}; the string indices
+  # are ordered numerically so the rows do not shuffle on re-render.
+  defp params_to_label_rows(rows) when is_map(rows) do
+    rows
+    |> Enum.sort_by(fn {index, _} -> String.to_integer(index) end)
+    |> Enum.map(fn {_index, row} ->
+      %{"key" => row["key"] || "", "value" => row["value"] || ""}
+    end)
+    |> case do
+      [] -> [blank_label_row()]
+      parsed -> parsed
+    end
+  end
+
+  defp params_to_label_rows(_), do: [blank_label_row()]
+
+  # Rows with no key are simply unfilled, not an error worth stopping a save for.
+  defp rows_to_labels(rows) do
+    rows
+    |> Enum.reject(fn row -> String.trim(row["key"] || "") == "" end)
+    |> Map.new(fn row -> {String.trim(row["key"]), String.trim(row["value"] || "")} end)
   end
 
   # `||` cannot default a boolean: `false || true` is `true`, so a saved false
@@ -89,6 +125,7 @@ defmodule TimelessUIWeb.ScrapeTargetLive do
   defp bool_or(nil, default), do: default
   defp bool_or(value, _default), do: value
 
+  defp field_label("scrape_timeout"), do: "Scrape timeout"
   defp field_label("labels"), do: "Labels"
   defp field_label("metric_relabel_configs"), do: "Metric relabel configs"
   defp field_label(field), do: field
@@ -241,7 +278,7 @@ defmodule TimelessUIWeb.ScrapeTargetLive do
         <h2 class="card-title mb-4">
           {if @editing, do: "Edit Target", else: "Add Target"}
         </h2>
-        <form phx-submit="save_target">
+        <form phx-submit="save_target" phx-change="form_changed">
           <input :if={@editing} type="hidden" name="target_id" value={@editing} />
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div class="form-control">
@@ -305,6 +342,47 @@ defmodule TimelessUIWeb.ScrapeTargetLive do
             </div>
           </div>
 
+          <div class="form-control mt-4">
+            <label class="label">
+              <span class="label-text">Labels</span>
+            </label>
+            <p class="text-sm text-base-content/60 -mt-1 mb-2">
+              Added to every metric from this target. Nothing else identifies where a
+              metric came from, so without at least a <code>host</code> label these
+              series cannot be attached to a host or found on a canvas.
+            </p>
+            <div class="space-y-2">
+              <div :for={{row, index} <- Enum.with_index(@form.labels)} class="flex gap-2">
+                <input
+                  type="text"
+                  name={"labels[#{index}][key]"}
+                  value={row["key"]}
+                  class="input input-bordered input-sm flex-1"
+                  placeholder="host"
+                />
+                <input
+                  type="text"
+                  name={"labels[#{index}][value]"}
+                  value={row["value"]}
+                  class="input input-bordered input-sm flex-1"
+                  placeholder="my-server"
+                />
+                <button
+                  type="button"
+                  phx-click="remove_label"
+                  phx-value-index={index}
+                  class="btn btn-sm btn-ghost"
+                  aria-label="Remove label"
+                >
+                  &times;
+                </button>
+              </div>
+            </div>
+            <button type="button" phx-click="add_label" class="btn btn-sm btn-ghost mt-2 self-start">
+              + Add label
+            </button>
+          </div>
+
           <div class="mt-4">
             <button
               type="button"
@@ -317,15 +395,6 @@ defmodule TimelessUIWeb.ScrapeTargetLive do
           </div>
 
           <div :if={@show_advanced} class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
-            <div class="form-control sm:col-span-2">
-              <label class="label"><span class="label-text">Labels (JSON)</span></label>
-              <textarea
-                name="labels"
-                class="textarea textarea-bordered font-mono text-sm"
-                rows="3"
-                placeholder={~s|{"env": "prod"}|}
-              >{@form.labels}</textarea>
-            </div>
             <div class="form-control">
               <label class="label cursor-pointer justify-start gap-3">
                 <input
@@ -339,9 +408,14 @@ defmodule TimelessUIWeb.ScrapeTargetLive do
                   value="true"
                   checked={@form.honor_labels}
                   class="checkbox"
+                  disabled
                 />
-                <span class="label-text">Honor Labels</span>
+                <span class="label-text opacity-60">Honor Labels</span>
               </label>
+              <p class="text-sm text-base-content/60">
+                Not yet supported. Labels already set by the target are never
+                overwritten, which is the behaviour this would enable.
+              </p>
             </div>
             <div class="form-control">
               <label class="label cursor-pointer justify-start gap-3">
@@ -356,20 +430,27 @@ defmodule TimelessUIWeb.ScrapeTargetLive do
                   value="true"
                   checked={@form.honor_timestamps}
                   class="checkbox"
+                  disabled
                 />
-                <span class="label-text">Honor Timestamps</span>
+                <span class="label-text opacity-60">Honor Timestamps</span>
               </label>
+              <p class="text-sm text-base-content/60">Not yet supported.</p>
             </div>
             <div class="form-control sm:col-span-2">
               <label class="label">
-                <span class="label-text">Metric Relabel Configs (JSON)</span>
+                <span class="label-text opacity-60">Metric Relabel Configs (JSON)</span>
               </label>
               <textarea
                 name="metric_relabel_configs"
                 class="textarea textarea-bordered font-mono text-sm"
                 rows="4"
+                disabled
                 placeholder={~s|[{"action": "keep", "source_labels": ["__name__"], "regex": "up"}]|}
               >{@form.metric_relabel_configs}</textarea>
+              <p class="text-sm text-base-content/60 mt-1">
+                Not yet supported. Anything entered here would be stored and never
+                applied, so it is disabled rather than silently ignored.
+              </p>
             </div>
           </div>
 
@@ -431,11 +512,34 @@ defmodule TimelessUIWeb.ScrapeTargetLive do
         {:noreply,
          socket
          |> assign(form: params_to_form(params))
-         |> put_flash(:error, "#{field_label(field)} is not valid JSON: #{message}")}
+         |> put_flash(:error, "#{field_label(field)} #{message}")}
 
       {:ok, api_params} ->
         save_target(socket, api_params)
     end
+  end
+
+  # Without this the form would lose everything typed so far the moment a label
+  # row is added or removed, since those re-render the form from assigns.
+  def handle_event("form_changed", params, socket) do
+    {:noreply, assign(socket, form: params_to_form(params))}
+  end
+
+  def handle_event("add_label", _params, socket) do
+    rows = socket.assigns.form.labels ++ [blank_label_row()]
+    {:noreply, assign(socket, form: %{socket.assigns.form | labels: rows})}
+  end
+
+  def handle_event("remove_label", %{"index" => index}, socket) do
+    rows =
+      socket.assigns.form.labels
+      |> List.delete_at(String.to_integer(index))
+      |> case do
+        [] -> [blank_label_row()]
+        remaining -> remaining
+      end
+
+    {:noreply, assign(socket, form: %{socket.assigns.form | labels: rows})}
   end
 
   def handle_event("delete_target", %{"id" => id_str}, socket) do
@@ -503,11 +607,26 @@ defmodule TimelessUIWeb.ScrapeTargetLive do
       "honor_timestamps" => params["honor_timestamps"] == "true"
     }
 
-    with {:ok, base} <- put_json(base, "labels", params["labels"], %{}),
-         {:ok, base} <- put_json(base, "metric_relabel_configs", params["metric_relabel_configs"], nil) do
+    base = Map.put(base, "labels", rows_to_labels(params_to_label_rows(params["labels"])))
+
+    with :ok <- validate_timeout(base),
+         {:ok, base} <-
+           put_json(base, "metric_relabel_configs", params["metric_relabel_configs"], nil) do
       {:ok, base}
     end
   end
+
+  # A timeout at or beyond the interval can never complete before the next scrape
+  # is due. Prometheus rejects it, and silently accepting it here would produce a
+  # target that looks configured and quietly overlaps itself.
+  defp validate_timeout(%{"scrape_timeout" => timeout, "scrape_interval" => interval})
+       when timeout >= interval do
+    {:error, "scrape_timeout",
+     "must be less than the scrape interval (#{interval}s), otherwise a scrape " <>
+       "cannot finish before the next one is due"}
+  end
+
+  defp validate_timeout(_), do: :ok
 
   defp parse_int(nil, default), do: default
   defp parse_int("", default), do: default
@@ -538,7 +657,7 @@ defmodule TimelessUIWeb.ScrapeTargetLive do
           # a target that reported healthy while storing series with none of the
           # labels that make them findable.
           {:error, error} ->
-            {:error, key, Exception.message(error)}
+            {:error, key, "is not valid JSON: " <> Exception.message(error)}
         end
     end
   end
