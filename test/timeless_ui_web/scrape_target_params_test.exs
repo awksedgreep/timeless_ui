@@ -96,12 +96,4 @@ defmodule TimelessUIWeb.ScrapeTargetParamsTest do
     end
   end
 
-  describe "metric relabel configs" do
-    test "invalid JSON is reported, not discarded" do
-      assert {:error, "metric_relabel_configs", message} =
-               ScrapeTargetLive.build_api_params(base(%{"metric_relabel_configs" => "[oops"}))
-
-      assert message =~ "not valid JSON"
-    end
-  end
 end

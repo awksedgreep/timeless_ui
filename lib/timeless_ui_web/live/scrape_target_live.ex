@@ -18,7 +18,6 @@ defmodule TimelessUIWeb.ScrapeTargetLive do
        show_form: false,
        editing: nil,
        form: default_form(),
-       show_advanced: false,
        expanded_id: nil
      )
      |> load_targets()}
@@ -44,10 +43,7 @@ defmodule TimelessUIWeb.ScrapeTargetLive do
       metrics_path: "/metrics",
       scrape_interval: "30",
       scrape_timeout: "10",
-      labels: [blank_label_row()],
-      honor_labels: false,
-      honor_timestamps: true,
-      metric_relabel_configs: ""
+      labels: [blank_label_row()]
     }
   end
 
@@ -59,10 +55,7 @@ defmodule TimelessUIWeb.ScrapeTargetLive do
       metrics_path: target.metrics_path || "/metrics",
       scrape_interval: to_string(target.scrape_interval || 30),
       scrape_timeout: to_string(target.scrape_timeout || 10),
-      labels: labels_to_rows(target.labels),
-      honor_labels: bool_or(target.honor_labels, false),
-      honor_timestamps: bool_or(target.honor_timestamps, true),
-      metric_relabel_configs: encode_json(target.metric_relabel_configs)
+      labels: labels_to_rows(target.labels)
     }
   end
 
@@ -76,10 +69,7 @@ defmodule TimelessUIWeb.ScrapeTargetLive do
       metrics_path: params["metrics_path"] || "/metrics",
       scrape_interval: params["scrape_interval"] || "30",
       scrape_timeout: params["scrape_timeout"] || "10",
-      labels: params_to_label_rows(params["labels"]),
-      honor_labels: params["honor_labels"] == "true",
-      honor_timestamps: params["honor_timestamps"] == "true",
-      metric_relabel_configs: params["metric_relabel_configs"] || ""
+      labels: params_to_label_rows(params["labels"])
     }
   end
 
@@ -127,13 +117,7 @@ defmodule TimelessUIWeb.ScrapeTargetLive do
 
   defp field_label("scrape_timeout"), do: "Scrape timeout"
   defp field_label("labels"), do: "Labels"
-  defp field_label("metric_relabel_configs"), do: "Metric relabel configs"
   defp field_label(field), do: field
-
-  defp encode_json(nil), do: ""
-  defp encode_json(val) when val == %{}, do: ""
-  defp encode_json(val) when val == [], do: ""
-  defp encode_json(val), do: Jason.encode!(val, pretty: true)
 
   @impl true
   def render(assigns) do
@@ -150,7 +134,6 @@ defmodule TimelessUIWeb.ScrapeTargetLive do
         :if={@show_form}
         form={@form}
         editing={@editing}
-        show_advanced={@show_advanced}
       />
 
       <div :if={@loading} class="text-center py-16">
@@ -383,77 +366,6 @@ defmodule TimelessUIWeb.ScrapeTargetLive do
             </button>
           </div>
 
-          <div class="mt-4">
-            <button
-              type="button"
-              phx-click="toggle_advanced"
-              class="btn btn-sm btn-ghost gap-1"
-            >
-              <span :if={!@show_advanced}>&#9654;</span>
-              <span :if={@show_advanced}>&#9660;</span> Advanced Options
-            </button>
-          </div>
-
-          <div :if={@show_advanced} class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
-            <div class="form-control">
-              <label class="label cursor-pointer justify-start gap-3">
-                <input
-                  type="hidden"
-                  name="honor_labels"
-                  value="false"
-                />
-                <input
-                  type="checkbox"
-                  name="honor_labels"
-                  value="true"
-                  checked={@form.honor_labels}
-                  class="checkbox"
-                  disabled
-                />
-                <span class="label-text opacity-60">Honor Labels</span>
-              </label>
-              <p class="text-sm text-base-content/60">
-                Not yet supported. Labels already set by the target are never
-                overwritten, which is the behaviour this would enable.
-              </p>
-            </div>
-            <div class="form-control">
-              <label class="label cursor-pointer justify-start gap-3">
-                <input
-                  type="hidden"
-                  name="honor_timestamps"
-                  value="false"
-                />
-                <input
-                  type="checkbox"
-                  name="honor_timestamps"
-                  value="true"
-                  checked={@form.honor_timestamps}
-                  class="checkbox"
-                  disabled
-                />
-                <span class="label-text opacity-60">Honor Timestamps</span>
-              </label>
-              <p class="text-sm text-base-content/60">Not yet supported.</p>
-            </div>
-            <div class="form-control sm:col-span-2">
-              <label class="label">
-                <span class="label-text opacity-60">Metric Relabel Configs (JSON)</span>
-              </label>
-              <textarea
-                name="metric_relabel_configs"
-                class="textarea textarea-bordered font-mono text-sm"
-                rows="4"
-                disabled
-                placeholder={~s|[{"action": "keep", "source_labels": ["__name__"], "regex": "up"}]|}
-              >{@form.metric_relabel_configs}</textarea>
-              <p class="text-sm text-base-content/60 mt-1">
-                Not yet supported. Anything entered here would be stored and never
-                applied, so it is disabled rather than silently ignored.
-              </p>
-            </div>
-          </div>
-
           <div class="card-actions justify-end mt-6">
             <button type="button" phx-click="cancel_form" class="btn btn-ghost">Cancel</button>
             <button type="submit" class="btn btn-primary">
@@ -471,15 +383,11 @@ defmodule TimelessUIWeb.ScrapeTargetLive do
   @impl true
   def handle_event("show_add_form", _params, socket) do
     {:noreply,
-     assign(socket, show_form: true, editing: nil, form: default_form(), show_advanced: false)}
+     assign(socket, show_form: true, editing: nil, form: default_form())}
   end
 
   def handle_event("cancel_form", _params, socket) do
     {:noreply, assign(socket, show_form: false, editing: nil)}
-  end
-
-  def handle_event("toggle_advanced", _params, socket) do
-    {:noreply, assign(socket, show_advanced: !socket.assigns.show_advanced)}
   end
 
   def handle_event("toggle_expand", %{"id" => id_str}, socket) do
@@ -497,8 +405,7 @@ defmodule TimelessUIWeb.ScrapeTargetLive do
          assign(socket,
            show_form: true,
            editing: id,
-           form: target_to_form(target),
-           show_advanced: false
+           form: target_to_form(target)
          )}
 
       {:error, _} ->
@@ -602,16 +509,12 @@ defmodule TimelessUIWeb.ScrapeTargetLive do
       "scheme" => params["scheme"] || "http",
       "metrics_path" => params["metrics_path"] || "/metrics",
       "scrape_interval" => parse_int(params["scrape_interval"], 30),
-      "scrape_timeout" => parse_int(params["scrape_timeout"], 10),
-      "honor_labels" => params["honor_labels"] == "true",
-      "honor_timestamps" => params["honor_timestamps"] == "true"
+      "scrape_timeout" => parse_int(params["scrape_timeout"], 10)
     }
 
     base = Map.put(base, "labels", rows_to_labels(params_to_label_rows(params["labels"])))
 
-    with :ok <- validate_timeout(base),
-         {:ok, base} <-
-           put_json(base, "metric_relabel_configs", params["metric_relabel_configs"], nil) do
+    with :ok <- validate_timeout(base) do
       {:ok, base}
     end
   end
