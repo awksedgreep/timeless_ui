@@ -60,11 +60,38 @@ defmodule TimelessUIWeb.ScrapeTargetLive do
       scrape_interval: to_string(target.scrape_interval || 30),
       scrape_timeout: to_string(target.scrape_timeout || 10),
       labels: encode_json(target.labels),
-      honor_labels: target.honor_labels || false,
-      honor_timestamps: target.honor_timestamps || true,
+      honor_labels: bool_or(target.honor_labels, false),
+      honor_timestamps: bool_or(target.honor_timestamps, true),
       metric_relabel_configs: encode_json(target.metric_relabel_configs)
     }
   end
+
+  # Rebuild the form from what was submitted so a validation failure does not
+  # discard everything the operator typed.
+  defp params_to_form(params) do
+    %{
+      job_name: params["job_name"] || "",
+      address: params["address"] || "",
+      scheme: params["scheme"] || "http",
+      metrics_path: params["metrics_path"] || "/metrics",
+      scrape_interval: params["scrape_interval"] || "30",
+      scrape_timeout: params["scrape_timeout"] || "10",
+      labels: params["labels"] || "",
+      honor_labels: params["honor_labels"] == "true",
+      honor_timestamps: params["honor_timestamps"] == "true",
+      metric_relabel_configs: params["metric_relabel_configs"] || ""
+    }
+  end
+
+  # `||` cannot default a boolean: `false || true` is `true`, so a saved false
+  # rendered as checked and the stored value could never be seen. Only nil,
+  # meaning "not set", should fall back to the default.
+  defp bool_or(nil, default), do: default
+  defp bool_or(value, _default), do: value
+
+  defp field_label("labels"), do: "Labels"
+  defp field_label("metric_relabel_configs"), do: "Metric relabel configs"
+  defp field_label(field), do: field
 
   defp encode_json(nil), do: ""
   defp encode_json(val) when val == %{}, do: ""
@@ -399,8 +426,40 @@ defmodule TimelessUIWeb.ScrapeTargetLive do
   end
 
   def handle_event("save_target", params, socket) do
-    api_params = build_api_params(params)
+    case build_api_params(params) do
+      {:error, field, message} ->
+        {:noreply,
+         socket
+         |> assign(form: params_to_form(params))
+         |> put_flash(:error, "#{field_label(field)} is not valid JSON: #{message}")}
 
+      {:ok, api_params} ->
+        save_target(socket, api_params)
+    end
+  end
+
+  def handle_event("delete_target", %{"id" => id_str}, socket) do
+    id = String.to_integer(id_str)
+
+    case MetricsAPI.delete_target(id) do
+      :ok ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Target deleted.")
+         |> load_targets()}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Delete failed: #{inspect(reason)}")}
+    end
+  end
+
+  @impl true
+  def handle_info(:refresh, socket) do
+    Process.send_after(self(), :refresh, @refresh_interval)
+    {:noreply, load_targets(socket)}
+  end
+
+  defp save_target(socket, api_params) do
     result =
       if socket.assigns.editing do
         MetricsAPI.update_target(socket.assigns.editing, api_params)
@@ -428,30 +487,11 @@ defmodule TimelessUIWeb.ScrapeTargetLive do
     end
   end
 
-  def handle_event("delete_target", %{"id" => id_str}, socket) do
-    id = String.to_integer(id_str)
-
-    case MetricsAPI.delete_target(id) do
-      :ok ->
-        {:noreply,
-         socket
-         |> put_flash(:info, "Target deleted.")
-         |> load_targets()}
-
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Delete failed: #{inspect(reason)}")}
-    end
-  end
-
-  @impl true
-  def handle_info(:refresh, socket) do
-    Process.send_after(self(), :refresh, @refresh_interval)
-    {:noreply, load_targets(socket)}
-  end
-
   # --- Helpers ---
 
-  defp build_api_params(params) do
+  @doc false
+  # Public so the JSON handling can be tested without driving the LiveView.
+  def build_api_params(params) do
     base = %{
       "job_name" => params["job_name"],
       "address" => params["address"],
@@ -463,9 +503,10 @@ defmodule TimelessUIWeb.ScrapeTargetLive do
       "honor_timestamps" => params["honor_timestamps"] == "true"
     }
 
-    base
-    |> maybe_put_json("labels", params["labels"])
-    |> maybe_put_json("metric_relabel_configs", params["metric_relabel_configs"])
+    with {:ok, base} <- put_json(base, "labels", params["labels"], %{}),
+         {:ok, base} <- put_json(base, "metric_relabel_configs", params["metric_relabel_configs"], nil) do
+      {:ok, base}
+    end
   end
 
   defp parse_int(nil, default), do: default
@@ -478,13 +519,27 @@ defmodule TimelessUIWeb.ScrapeTargetLive do
     end
   end
 
-  defp maybe_put_json(map, _key, nil), do: map
-  defp maybe_put_json(map, _key, ""), do: map
+  # A field that is absent from the submission is left alone; a field that is
+  # present but blank is an instruction to clear it. Collapsing those two, as
+  # this previously did, means a value can be set and edited but never removed.
+  defp put_json(map, _key, nil, _empty), do: {:ok, map}
 
-  defp maybe_put_json(map, key, str) do
-    case Jason.decode(str) do
-      {:ok, val} -> Map.put(map, key, val)
-      {:error, _} -> map
+  defp put_json(map, key, str, empty) do
+    case String.trim(str) do
+      "" ->
+        {:ok, Map.put(map, key, empty)}
+
+      trimmed ->
+        case Jason.decode(trimmed) do
+          {:ok, val} ->
+            {:ok, Map.put(map, key, val)}
+
+          # Never discard input the operator typed. Silently dropping it produced
+          # a target that reported healthy while storing series with none of the
+          # labels that make them findable.
+          {:error, error} ->
+            {:error, key, Exception.message(error)}
+        end
     end
   end
 end
