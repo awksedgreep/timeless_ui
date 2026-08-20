@@ -73,7 +73,7 @@ defmodule TimelessUI.MixProject do
       {:opentelemetry_bandit, "~> 0.3.0"},
       {:opentelemetry_ecto, "~> 1.2"},
       {:crontab, "~> 1.1"},
-      {:raw_ping, "~> 0.2.0"},
+      {:raw_ping, "~> 0.3"},
       {:req, "~> 0.5"},
       {:snmpkit, "~> 1.3"}
     ]

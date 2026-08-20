@@ -13,6 +13,7 @@ defmodule TimelessUI.Application do
     children =
       [
         TimelessUIWeb.Telemetry,
+        TimelessUI.Accounts.LoginThrottle,
         TimelessUI.Repo,
         {Ecto.Migrator,
          repos: Application.fetch_env!(:timeless_ui, :ecto_repos), skip: skip_migrations?()}
