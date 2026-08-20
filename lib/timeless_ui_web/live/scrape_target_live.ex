@@ -176,20 +176,20 @@ defmodule TimelessUIWeb.ScrapeTargetLive do
     <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 p-2 text-sm">
       <div>
         <span class="text-base-content/60">Last Scrape</span>
-        <p class="font-medium">{format_timestamp(@target.health.last_scrape)}</p>
+        <p class="font-medium">{format_timestamp(@target.last_scrape)}</p>
       </div>
       <div>
         <span class="text-base-content/60">Duration</span>
-        <p class="font-medium">{format_duration(@target.health.last_duration_ms)}</p>
+        <p class="font-medium">{format_duration(@target.last_duration_ms)}</p>
       </div>
       <div>
         <span class="text-base-content/60">Samples</span>
-        <p class="font-medium">{@target.health.samples_scraped || "—"}</p>
+        <p class="font-medium">{@target.samples_scraped || "—"}</p>
       </div>
       <div>
         <span class="text-base-content/60">Error</span>
-        <p class={["font-medium", @target.health.last_error && "text-error"]}>
-          {@target.health.last_error || "—"}
+        <p class={["font-medium", @target.last_error && "text-error"]}>
+          {@target.last_error || "—"}
         </p>
       </div>
     </div>
