@@ -109,12 +109,6 @@ defmodule TimelessUIWeb.ScrapeTargetLive do
     |> Map.new(fn row -> {String.trim(row["key"]), String.trim(row["value"] || "")} end)
   end
 
-  # `||` cannot default a boolean: `false || true` is `true`, so a saved false
-  # rendered as checked and the stored value could never be seen. Only nil,
-  # meaning "not set", should fall back to the default.
-  defp bool_or(nil, default), do: default
-  defp bool_or(value, _default), do: value
-
   defp field_label("scrape_timeout"), do: "Scrape timeout"
   defp field_label("labels"), do: "Labels"
   defp field_label(field), do: field
@@ -389,8 +383,7 @@ defmodule TimelessUIWeb.ScrapeTargetLive do
 
   @impl true
   def handle_event("show_add_form", _params, socket) do
-    {:noreply,
-     assign(socket, show_form: true, editing: nil, form: default_form())}
+    {:noreply, assign(socket, show_form: true, editing: nil, form: default_form())}
   end
 
   def handle_event("cancel_form", _params, socket) do
@@ -545,30 +538,6 @@ defmodule TimelessUIWeb.ScrapeTargetLive do
     case Integer.parse(str) do
       {n, _} -> n
       :error -> default
-    end
-  end
-
-  # A field that is absent from the submission is left alone; a field that is
-  # present but blank is an instruction to clear it. Collapsing those two, as
-  # this previously did, means a value can be set and edited but never removed.
-  defp put_json(map, _key, nil, _empty), do: {:ok, map}
-
-  defp put_json(map, key, str, empty) do
-    case String.trim(str) do
-      "" ->
-        {:ok, Map.put(map, key, empty)}
-
-      trimmed ->
-        case Jason.decode(trimmed) do
-          {:ok, val} ->
-            {:ok, Map.put(map, key, val)}
-
-          # Never discard input the operator typed. Silently dropping it produced
-          # a target that reported healthy while storing series with none of the
-          # labels that make them findable.
-          {:error, error} ->
-            {:error, key, "is not valid JSON: " <> Exception.message(error)}
-        end
     end
   end
 end

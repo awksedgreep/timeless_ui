@@ -1,6 +1,8 @@
 defmodule TimelessUIWeb.PollerLive.Hosts do
   use TimelessUIWeb, :live_view
 
+  import TimelessUIWeb.PollerNav
+
   alias TimelessUI.Poller.{Hosts, Host}
   alias Ecto.Changeset
 
@@ -21,11 +23,10 @@ defmodule TimelessUIWeb.PollerLive.Hosts do
   def render(assigns) do
     ~H"""
     <div class="max-w-4xl mx-auto p-8">
+      <.poller_nav current={:hosts} />
+
       <div class="flex items-center justify-between mb-8">
-        <div class="flex items-center gap-4">
-          <.link navigate={~p"/poller"} class="btn btn-sm btn-ghost">&larr; Dashboard</.link>
-          <h1 class="text-2xl font-bold">Poller Hosts</h1>
-        </div>
+        <h1 class="text-2xl font-bold">Poller Hosts</h1>
         <button :if={!@show_form} phx-click="show_add_form" class="btn btn-primary">
           Add Host
         </button>

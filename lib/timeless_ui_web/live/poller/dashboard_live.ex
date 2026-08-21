@@ -1,6 +1,8 @@
 defmodule TimelessUIWeb.PollerLive.Dashboard do
   use TimelessUIWeb, :live_view
 
+  import TimelessUIWeb.PollerNav
+
   alias TimelessUI.Poller.{Scheduler, Dispatcher}
 
   @refresh_interval :timer.seconds(5)
@@ -49,13 +51,10 @@ defmodule TimelessUIWeb.PollerLive.Dashboard do
   def render(assigns) do
     ~H"""
     <div class="max-w-4xl mx-auto p-8">
+      <.poller_nav current={:dashboard} />
+
       <div class="flex items-center justify-between mb-8">
         <h1 class="text-2xl font-bold">Poller Dashboard</h1>
-        <div class="flex gap-2">
-          <.link navigate={~p"/poller/hosts"} class="btn btn-sm btn-outline">Hosts</.link>
-          <.link navigate={~p"/poller/requests"} class="btn btn-sm btn-outline">Requests</.link>
-          <.link navigate={~p"/poller/schedules"} class="btn btn-sm btn-outline">Schedules</.link>
-        </div>
       </div>
 
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
