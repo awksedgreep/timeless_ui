@@ -77,16 +77,32 @@ defmodule TimelessUI.MetricsDataPlane.Writer do
     end
   end
 
+  # `ts` is epoch seconds, per `TimelessUI.Poller.Collector.metric_data`; the
+  # import surface takes milliseconds.
   defp normalize(%{name: name, host: host, type: type, val: value, ts: timestamp} = metric)
        when is_binary(name) and is_number(value) and is_integer(timestamp) do
-    labels =
-      %{"host" => to_string(host), "type" => to_string(type)}
-      |> Map.merge(stringify_labels(Map.get(metric, :labels) || %{}))
+    if plausible_seconds?(timestamp) do
+      labels =
+        %{"host" => to_string(host), "type" => to_string(type)}
+        |> Map.merge(stringify_labels(Map.get(metric, :labels) || %{}))
 
-    {:ok, {name, labels}, timestamp * 1_000, value * 1.0}
+      {:ok, {name, labels}, timestamp * 1_000, value * 1.0}
+    else
+      {:error, {:implausible_timestamp, name, timestamp}}
+    end
   end
 
   defp normalize(metric), do: {:error, {:invalid_numeric_metric, metric}}
+
+  # A collector emitting milliseconds instead of seconds is off by 1000, which
+  # ingests cleanly and lands the sample ~56,000 years out: the write succeeds,
+  # the series shows up in /api/v1/series, and no query ever returns a point.
+  # There is no honest reading of a poller sample a day either side of now, so
+  # refuse it here where the error is still attributable to a collector.
+  defp plausible_seconds?(timestamp) do
+    now = System.system_time(:second)
+    timestamp > now - 86_400 * 366 and timestamp < now + 86_400
+  end
 
   defp stringify_labels(labels) when is_map(labels) do
     Map.new(labels, fn {key, value} -> {to_string(key), to_string(value)} end)

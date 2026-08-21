@@ -13,6 +13,10 @@ defmodule TimelessUI.Poller.Collector do
           labels: map(),
           val: number() | String.t(),
           val_type: :numeric | :text,
+          # Epoch SECONDS. The store keeps second resolution, so finer units
+          # buy nothing -- and a collector that emits milliseconds here lands
+          # its samples about 56,000 years in the future, where the write
+          # succeeds, the series appears, and no query ever returns a point.
           ts: integer()
         }
 

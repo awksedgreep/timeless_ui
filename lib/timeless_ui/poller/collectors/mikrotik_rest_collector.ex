@@ -54,7 +54,7 @@ defmodule TimelessUI.Poller.Collectors.MikrotikRestCollector do
   @impl true
   def execute(host, _request, config, opts \\ []) do
     timeout = Keyword.get(opts, :mikrotik_timeout_ms, 5_000)
-    ts = System.system_time(:millisecond)
+    ts = System.system_time(:second)
 
     username = get_config(config, :username, "admin")
     password = get_config(config, :password, "")

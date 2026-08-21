@@ -18,7 +18,7 @@ defmodule TimelessUI.Poller.Collectors.IcmpCollector do
     timeout = Keyword.get(opts, :timeout, poller_config(:icmp_timeout_ms, 1_000))
     count = Keyword.get(opts, :count, poller_config(:icmp_count, 1))
     ip = host.ip
-    ts = System.system_time(:millisecond)
+    ts = System.system_time(:second)
 
     case RawPing.ping_stats(ip, count: count, timeout: timeout) do
       {:ok, stats} ->

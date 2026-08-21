@@ -32,7 +32,7 @@ defmodule TimelessUI.Poller.Collectors.PrometheusCollector do
   @impl true
   def execute(host, _request, config, opts \\ []) do
     timeout = Keyword.get(opts, :prometheus_timeout_ms, 5_000)
-    ts = System.system_time(:millisecond)
+    ts = System.system_time(:second)
 
     scheme = get_config(config, :scheme, "http")
     port = get_config(config, :port, default_port(scheme))
@@ -64,7 +64,7 @@ defmodule TimelessUI.Poller.Collectors.PrometheusCollector do
   rescue
     e ->
       Logger.error("Prometheus error for #{host.name}: #{Exception.message(e)}")
-      {:ok, [scrape_failure_metric(host, System.system_time(:millisecond))]}
+      {:ok, [scrape_failure_metric(host, System.system_time(:second))]}
   end
 
   @doc "Fetch raw exposition bytes for the Rust parser path."
