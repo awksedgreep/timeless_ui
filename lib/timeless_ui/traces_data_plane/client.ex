@@ -86,6 +86,94 @@ defmodule TimelessUI.TracesDataPlane.Client do
     end
   end
 
+  @doc """
+  Live tail: streams spans matching a filter from
+  `/select/timeless/api/spans/tail`, sending `{:timeless_traces, :span, span}`
+  messages to `subscriber` — the same message shape the embedded engine
+  delivers, so consumers cannot tell the sources apart. Returns `{:ok, pid}`;
+  kill the pid to unsubscribe (the closed connection unsubscribes
+  server-side).
+
+  Filters are the live-matchable subset of `search/2`'s, under the same names,
+  plus `:attributes` — a map of span attributes that must all match, which is
+  how a stream pins itself to one host. They are applied **at the data plane**,
+  per subscriber, before anything is serialised: an unfiltered tail on a busy
+  service is the whole span firehose, and discarding it here would spend that
+  bandwidth to reach the same result.
+  """
+  def tail(filters, subscriber, opts \\ [])
+      when is_list(filters) and is_pid(subscriber) and is_list(opts) do
+    allowed = [:name, :service, :kind, :status, :attributes]
+    unknown = Keyword.keys(filters) -- allowed
+
+    with true <- unknown == [] || {:error, {:unsupported_capability, :traces_tail_filters, unknown}},
+         {:ok, params} <- tail_params(filters),
+         {:ok, endpoint, owner_header} <- resolve_connection(opts) do
+      parent = subscriber
+
+      {:ok, pid} =
+        Task.start(fn ->
+          Req.request(
+            method: :get,
+            url: endpoint <> "/select/timeless/api/spans/tail",
+            params: params,
+            headers: request_headers(opts, owner_header),
+            receive_timeout: :infinity,
+            retry: false,
+            decode_body: false,
+            into: fn {:data, chunk}, {req, resp} ->
+              if resp.status == 200 do
+                buffer = Process.get(:tail_buffer, "") <> chunk
+                {lines, rest} = split_complete_lines(buffer)
+                Process.put(:tail_buffer, rest)
+
+                Enum.each(lines, fn line ->
+                  # A row that does not decode is skipped rather than crashing
+                  # the tail: one malformed span must not end the stream.
+                  with {:ok, row} <- Jason.decode(line),
+                       {:ok, span} <- decode_span(row) do
+                    send(parent, {:timeless_traces, :span, span})
+                  end
+                end)
+              end
+
+              {:cont, {req, resp}}
+            end
+          )
+        end)
+
+      {:ok, pid}
+    else
+      {:error, _reason} = error -> error
+    end
+  end
+
+  # Keepalive newlines arrive as empty lines and are dropped here.
+  defp split_complete_lines(buffer) do
+    parts = String.split(buffer, "\n")
+    {complete, [rest]} = Enum.split(parts, length(parts) - 1)
+    {Enum.reject(complete, &(&1 == "")), rest}
+  end
+
+  @doc false
+  # Public for tests: the filter that reaches the data plane is what decides
+  # whether a stream shows the right spans, and it is invisible from outside.
+  def tail_params(filters) do
+    Enum.reduce_while(filters, {:ok, %{}}, fn
+      {:attributes, value}, {:ok, params} when is_map(value) ->
+        case Jason.encode(value) do
+          {:ok, json} -> {:cont, {:ok, Map.put(params, :attributes, json)}}
+          {:error, _} -> {:halt, {:error, {:invalid_filter, :attributes}}}
+        end
+
+      {:attributes, _value}, _acc ->
+        {:halt, {:error, {:invalid_filter, :attributes}}}
+
+      {key, value}, {:ok, params} ->
+        {:cont, {:ok, Map.put(params, key, encode_param(value))}}
+    end)
+  end
+
   def jaeger_services(opts \\ []), do: json_request(:get, "/select/jaeger/api/services", opts)
 
   def jaeger_operations(service, opts \\ []) when is_binary(service) do

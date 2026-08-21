@@ -144,4 +144,42 @@ defmodule TimelessUI.TracesDataPlane.ClientTest do
 
     "http://127.0.0.1:#{port}"
   end
+
+  describe "tail filters" do
+    # Filters reach the data plane as query parameters and are applied there,
+    # per subscriber. Getting them wrong fails silently: the tail returns 200
+    # and streams nothing, which looks exactly like a system with no spans.
+
+    test "scalar filters pass through under the search's own names" do
+      assert {:ok, params} =
+               Client.tail_params(service: "checkout", name: "GET /orders", status: :error)
+
+      assert params == %{service: "checkout", name: "GET /orders", status: "error"}
+    end
+
+    test "attributes are encoded as one JSON object" do
+      assert {:ok, %{attributes: json}} =
+               Client.tail_params(attributes: %{"host.name" => "srv1178013"})
+
+      assert Jason.decode!(json) == %{"host.name" => "srv1178013"}
+    end
+
+    test "no filters means no parameters" do
+      # An element with its host cleared is asking for every span, not none.
+      assert {:ok, params} = Client.tail_params([])
+      assert params == %{}
+    end
+
+    test "attributes that are not a map are rejected" do
+      assert {:error, {:invalid_filter, :attributes}} =
+               Client.tail_params(attributes: "host.name=srv1")
+    end
+
+    test "unsupported filters are refused rather than dropped" do
+      # Silently ignoring one would stream every span while the caller
+      # believed the stream was scoped.
+      assert {:error, {:unsupported_capability, :traces_tail_filters, [:since]}} =
+               Client.tail([since: 1], self(), base_url: "http://127.0.0.1:1")
+    end
+  end
 end
