@@ -52,6 +52,7 @@ defmodule TimelessUI.LogsDataPlane.Client do
                 buffer = Process.get(:tail_buffer, "") <> chunk
                 {lines, rest} = split_complete_lines(buffer)
                 Process.put(:tail_buffer, rest)
+
                 Enum.each(lines, fn line ->
                   case Jason.decode(line) do
                     {:ok, row} when is_map(row) ->
@@ -78,19 +79,39 @@ defmodule TimelessUI.LogsDataPlane.Client do
     {Enum.reject(complete, &(&1 == "")), rest}
   end
 
-  defp tail_entry(row) do
+  # Must match decode_entry/1's shape exactly, which is TimelessLogs.Entry's:
+  # an integer microsecond timestamp and an atom level. This previously kept
+  # the DateTime and the level string the wire carries, which no consumer
+  # expects -- a canvas log element rendered every row as "??:??:??" in the
+  # default colour, because both fields silently missed every clause written
+  # against the engine's types.
+  @doc false
+  # Public for tests: this shape is what a canvas element renders, and a
+  # mismatch shows up as a rendering artifact rather than an error.
+  def tail_entry(row) do
     {timestamp, row} = Map.pop(row, "_time")
     {message, row} = Map.pop(row, "_msg", "")
     {level, metadata} = Map.pop(row, "level", "info")
 
-    timestamp =
-      case is_binary(timestamp) && DateTime.from_iso8601(timestamp) do
-        {:ok, datetime, _offset} -> datetime
-        _ -> timestamp
-      end
-
-    %{timestamp: timestamp, level: level, message: message, metadata: metadata}
+    %{
+      timestamp: tail_timestamp(timestamp),
+      level: Map.get(@level_atoms, level, :info),
+      message: message,
+      metadata: metadata
+    }
   end
+
+  # A tail is a live view: an unparseable timestamp yields the arrival time
+  # rather than dropping the line, since the message is the reason to watch.
+  defp tail_timestamp(timestamp) do
+    with true <- is_binary(timestamp),
+         {:ok, datetime, _offset} <- DateTime.from_iso8601(timestamp) do
+      DateTime.to_unix(datetime, :microsecond)
+    else
+      _ -> System.os_time(:microsecond)
+    end
+  end
+
   def stats(opts \\ []), do: json_request(:get, "/select/logsql/stats", opts)
   def flush(opts \\ []), do: json_request(:get, "/api/v1/flush", opts)
 

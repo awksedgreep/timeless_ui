@@ -114,4 +114,51 @@ defmodule TimelessUI.LogsDataPlane.ClientTest do
 
     "http://127.0.0.1:#{port}"
   end
+
+  describe "tail entry shape" do
+    # A streamed entry and a queried one must be the same shape, because a
+    # consumer renders them with the same code. When they diverged, a canvas
+    # log element showed every row as "??:??:??" in the default colour -- no
+    # error anywhere, just two fields quietly missing every clause written
+    # against TimelessLogs.Entry's types.
+
+    @row %{
+      "_time" => "2026-08-21T03:14:15.926535Z",
+      "_msg" => "link flap",
+      "level" => "error",
+      "host" => "srv1178013"
+    }
+
+    test "the timestamp is integer microseconds, as the engine's is" do
+      entry = Client.tail_entry(@row)
+
+      assert is_integer(entry.timestamp)
+      assert entry.timestamp == DateTime.to_unix(~U[2026-08-21 03:14:15.926535Z], :microsecond)
+    end
+
+    test "the level is an atom, as the engine's is" do
+      # Colour is chosen by matching on the atom; a binary falls through to
+      # the default and every row renders identically.
+      assert Client.tail_entry(@row).level == :error
+    end
+
+    test "the message and remaining fields become metadata" do
+      entry = Client.tail_entry(@row)
+
+      assert entry.message == "link flap"
+      assert entry.metadata == %{"host" => "srv1178013"}
+    end
+
+    test "an unparseable timestamp yields arrival time rather than dropping the line" do
+      before = System.os_time(:microsecond)
+      entry = Client.tail_entry(%{@row | "_time" => "not a timestamp"})
+
+      assert is_integer(entry.timestamp)
+      assert entry.timestamp >= before
+    end
+
+    test "an unknown level falls back rather than crashing the tail" do
+      assert Client.tail_entry(%{@row | "level" => "chatty"}).level == :info
+    end
+  end
 end
