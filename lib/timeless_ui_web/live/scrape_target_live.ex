@@ -202,7 +202,9 @@ defmodule TimelessUIWeb.ScrapeTargetLive do
     """
   end
 
-  defp health_badge(assigns) do
+  @doc false
+  # Public so the badge can be rendered directly in tests.
+  def health_badge(assigns) do
     ~H"""
     <div class="flex items-center gap-1.5">
       <span class={["w-2.5 h-2.5 rounded-full", health_color(@health)]}></span>
@@ -211,11 +213,16 @@ defmodule TimelessUIWeb.ScrapeTargetLive do
     """
   end
 
-  defp health_color(%{health: "up"}), do: "bg-success"
-  defp health_color(%{health: "down"}), do: "bg-error"
+  # health arrives as the string the data plane reported, not a map: the badge is
+  # called as <.health_badge health={target.health} />. Matching on %{health: ...}
+  # never succeeded, so every target rendered grey and "unknown" no matter what
+  # it was actually doing — the same flat-versus-nested confusion that crashed
+  # target_details, except this end failed silently.
+  defp health_color("up"), do: "bg-success"
+  defp health_color("down"), do: "bg-error"
   defp health_color(_), do: "bg-base-content/30"
 
-  defp health_label(%{health: h}), do: h
+  defp health_label(health) when is_binary(health) and health != "", do: health
   defp health_label(_), do: "unknown"
 
   defp target_details(assigns) do
