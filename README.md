@@ -20,9 +20,11 @@ A Phoenix LiveView application for real-time metrics visualization and network m
 
 ## Features
 
-- **Canvas Editor** — Drag-and-drop dashboard builder with live-updating graph elements
-- **Scrape Targets** — Configure Prometheus-compatible scrape endpoints
-- **Poller** — ICMP ping monitoring with cron-based scheduling, bounded-concurrency dispatch, and CRUD management for hosts, requests, and schedules
+- **Canvas Editor** — Drag-and-drop dashboard builder with live-updating graph elements (`/canvas`)
+- **Scrape Targets** — Configure Prometheus-compatible scrape endpoints, with per-target reported health
+- **Poller** — Network monitoring over ICMP ping, SNMP (get/walk/bulkwalk with table support), Prometheus scrape, and MikroTik REST, with cron-based scheduling, bounded-concurrency dispatch, and CRUD management for hosts, requests, and schedules
+- **Observability** — Admin-only LiveDashboard at `/admin/observability` carrying the Timeless logs and traces pages, including streaming live tails, read through the Rust data-plane clients
+- **Accounts & administration** — Authenticated sessions with login rate limiting and lockout, forced password change, admin user management, and an admin API for data-plane status/retry, Ed25519 key rotation/revocation, auth policies, and token issuance/revocation
 
 ## Getting Started
 
@@ -39,7 +41,7 @@ iex -S mix phx.server
 
 ## Poller
 
-The poller system collects ICMP ping metrics from configured network hosts on cron schedules. It is disabled by default and can be enabled in config:
+The poller system collects network metrics from configured hosts on cron schedules. It is disabled by default and can be enabled in config:
 
 ```elixir
 # config/dev.exs
@@ -63,11 +65,11 @@ Without raw socket permissions, ICMP pings will fail and log warnings, but the r
 ### Poller Architecture
 
 - **Hosts** (`/poller/hosts`) — Network devices to poll, organized by groups
-- **Requests** (`/poller/requests`) — Polling templates (ICMP ping, with SNMP/Prometheus planned)
+- **Requests** (`/poller/requests`) — Polling templates: ICMP ping, SNMP get/walk/bulkwalk, Prometheus scrape, and MikroTik REST
 - **Schedules** (`/poller/schedules`) — Cron expressions matching host and request groups
 - **Dashboard** (`/poller`) — Live scheduler and dispatcher stats
 
-The scheduler ticks every minute, evaluates cron expressions, resolves host x request combinations, and enqueues jobs to a bounded-concurrency dispatcher. Metrics are written to TimelessMetrics via `apply/3`.
+The scheduler ticks every minute, evaluates cron expressions, resolves host x request combinations, and enqueues jobs to a bounded-concurrency dispatcher. Samples go through the configured metrics writer — embedded TimelessMetrics by default; the Stack routes them to the Rust metrics data plane.
 
 ## Configuration
 
