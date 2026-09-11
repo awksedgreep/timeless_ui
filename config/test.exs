@@ -13,6 +13,10 @@ config :timeless_ui, TimelessUI.Repo,
   pool_size: 1,
   pool: Ecto.Adapters.SQL.Sandbox
 
+# Cache ownership crosses SQL sandbox boundaries; cache behaviour has isolated
+# tests and normal test queries should always see their transaction.
+config :timeless_ui, :snmp_table_cache, enabled: false
+
 # We don't run a server during test. If one is required,
 # you can enable the server option below.
 config :timeless_ui, TimelessUIWeb.Endpoint,

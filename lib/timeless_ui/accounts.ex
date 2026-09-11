@@ -22,6 +22,13 @@ defmodule TimelessUI.Accounts do
 
   def get_user!(id), do: Repo.get!(User, id)
 
+  def get_user(id) do
+    case Repo.get(User, id) do
+      nil -> {:error, :not_found}
+      user -> {:ok, user}
+    end
+  end
+
   ## User management
 
   def create_user(attrs) do
@@ -114,9 +121,8 @@ defmodule TimelessUI.Accounts do
   defp update_user_and_delete_all_tokens(changeset) do
     Repo.transact(fn ->
       with {:ok, user} <- Repo.update(changeset) do
-        tokens_to_expire = Repo.all_by(UserToken, user_id: user.id)
-
-        Repo.delete_all(from(t in UserToken, where: t.id in ^Enum.map(tokens_to_expire, & &1.id)))
+        {_count, tokens_to_expire} =
+          Repo.delete_all(from(t in UserToken, where: t.user_id == ^user.id, select: t))
 
         {:ok, {user, tokens_to_expire}}
       end

@@ -10,6 +10,8 @@ defmodule TimelessUI.MetricsDataPlane.Writer do
 
   alias TimelessUI.MetricsDataPlane.Client
 
+  @default_batch_size 1_000
+
   def write_metrics(metrics, opts \\ []) when is_list(metrics) do
     {text, numeric} = Enum.split_with(metrics, &(Map.get(&1, :val_type) == :text))
 
@@ -37,16 +39,26 @@ defmodule TimelessUI.MetricsDataPlane.Writer do
   defp import_numeric(metrics, opts) do
     client = Keyword.get(opts, :client, Client)
     client_opts = Keyword.get(opts, :client_opts, [])
+    batch_size = Keyword.get(opts, :batch_size, @default_batch_size)
 
-    with {:ok, body} <- encode(metrics) do
-      client.import_victoria(body, client_opts)
-    end
+    metrics
+    |> Enum.chunk_every(batch_size)
+    |> Enum.reduce_while(:ok, fn chunk, :ok ->
+      with {:ok, body} <- encode(chunk),
+           :ok <- client.import_victoria(body, client_opts) do
+        {:cont, :ok}
+      else
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
   end
 
   defp encode(metrics) do
+    now = System.system_time(:second)
+
     metrics
     |> Enum.reduce_while({:ok, %{}}, fn metric, {:ok, groups} ->
-      with {:ok, key, timestamp, value} <- normalize(metric) do
+      with {:ok, key, timestamp, value} <- normalize(metric, now) do
         groups =
           Map.update(groups, key, {[value], [timestamp]}, fn {values, timestamps} ->
             {[value | values], [timestamp | timestamps]}
@@ -61,7 +73,6 @@ defmodule TimelessUI.MetricsDataPlane.Writer do
       {:ok, groups} ->
         lines =
           groups
-          |> Enum.sort_by(fn {{name, labels}, _points} -> {name, labels} end)
           |> Enum.map(fn {{name, labels}, {values, timestamps}} ->
             Jason.encode!(%{
               "metric" => Map.put(labels, "__name__", name),
@@ -79,9 +90,12 @@ defmodule TimelessUI.MetricsDataPlane.Writer do
 
   # `ts` is epoch seconds, per `TimelessUI.Poller.Collector.metric_data`; the
   # import surface takes milliseconds.
-  defp normalize(%{name: name, host: host, type: type, val: value, ts: timestamp} = metric)
+  defp normalize(
+         %{name: name, host: host, type: type, val: value, ts: timestamp} = metric,
+         now
+       )
        when is_binary(name) and is_number(value) and is_integer(timestamp) do
-    if plausible_seconds?(timestamp) do
+    if plausible_seconds?(timestamp, now) do
       labels =
         %{"host" => to_string(host), "type" => to_string(type)}
         |> Map.merge(stringify_labels(Map.get(metric, :labels) || %{}))
@@ -92,15 +106,14 @@ defmodule TimelessUI.MetricsDataPlane.Writer do
     end
   end
 
-  defp normalize(metric), do: {:error, {:invalid_numeric_metric, metric}}
+  defp normalize(metric, _now), do: {:error, {:invalid_numeric_metric, metric}}
 
   # A collector emitting milliseconds instead of seconds is off by 1000, which
   # ingests cleanly and lands the sample ~56,000 years out: the write succeeds,
   # the series shows up in /api/v1/series, and no query ever returns a point.
   # There is no honest reading of a poller sample a day either side of now, so
   # refuse it here where the error is still attributable to a collector.
-  defp plausible_seconds?(timestamp) do
-    now = System.system_time(:second)
+  defp plausible_seconds?(timestamp, now) do
     timestamp > now - 86_400 * 366 and timestamp < now + 86_400
   end
 

@@ -92,6 +92,29 @@ defmodule TimelessUI.MetricsDataPlane.ClientTest do
              Client.export("cpu", %{}, 1, 2, base_url: endpoint)
   end
 
+  test "rejects an export that exceeds the caller's point limit" do
+    body =
+      Jason.encode!(%{
+        "metric" => %{"__name__" => "cpu"},
+        "timestamps" => [1_000, 2_000],
+        "values" => [1, 2]
+      })
+
+    endpoint = serve_once(body)
+
+    assert {:error, {:response_exceeds_point_limit, 1}} =
+             Client.export("cpu", %{}, 1, 2, base_url: endpoint, max_points: 1)
+  end
+
+  test "halts an export response as soon as its byte limit is exceeded" do
+    endpoint = serve_once(String.duplicate("x", 1_024))
+
+    assert {:error, {:response_too_large, size}} =
+             Client.export("cpu", %{}, 1, 2, base_url: endpoint, max_body_bytes: 32)
+
+    assert size > 32
+  end
+
   test "rejects a non-loopback endpoint before opening a connection" do
     assert {:error, {:metrics_data_plane_must_use_loopback, "http://192.0.2.1:19439"}} =
              Client.export("cpu", %{}, 1, 2, base_url: "http://192.0.2.1:19439")

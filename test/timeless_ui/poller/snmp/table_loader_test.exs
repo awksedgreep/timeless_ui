@@ -1,5 +1,5 @@
 defmodule TimelessUI.Poller.Snmp.TableLoaderTest do
-  use TimelessUI.DataCase
+  use TimelessUI.DataCase, async: false
 
   alias TimelessUI.Poller.Snmp.TableLoader
 
@@ -17,6 +17,7 @@ defmodule TimelessUI.Poller.Snmp.TableLoaderTest do
       assert table_def.name == "ifXTable"
       assert table_def.base_oid == "1.3.6.1.2.1.31.1.1.1"
       assert table_def.index_pattern == ".{column}.{ifIndex}"
+      assert table_def.index_names == ["ifIndex"]
       assert is_map(table_def.columns)
       assert map_size(table_def.columns) == 11
 
@@ -27,6 +28,26 @@ defmodule TimelessUI.Poller.Snmp.TableLoaderTest do
 
     test "returns nil for unknown table" do
       assert TableLoader.get_table("nonExistentTable") == nil
+    end
+
+    test "caches definitions and explicit invalidation observes a write", %{table: table} do
+      previous = Application.get_env(:timeless_ui, :snmp_table_cache)
+      Application.put_env(:timeless_ui, :snmp_table_cache, enabled: true)
+      TableLoader.invalidate_all()
+
+      on_exit(fn ->
+        Application.put_env(:timeless_ui, :snmp_table_cache, previous)
+        TableLoader.invalidate_all()
+      end)
+
+      assert TableLoader.get_table("ifXTable").base_oid == table.base_oid
+
+      changed_oid = "1.3.6.1.2.1.31.99"
+      table |> Ecto.Changeset.change(base_oid: changed_oid) |> TimelessUI.Repo.update!()
+
+      assert TableLoader.get_table("ifXTable").base_oid == table.base_oid
+      assert :ok = TableLoader.invalidate("ifXTable")
+      assert TableLoader.get_table("ifXTable").base_oid == changed_oid
     end
   end
 
@@ -127,10 +148,10 @@ defmodule TimelessUI.Poller.Snmp.TableLoaderTest do
       assert TableLoader.build_index_key(%{"ifIndex" => 1}) == "1"
     end
 
-    test "joins multiple values" do
-      result = TableLoader.build_index_key(%{"ifIndex" => 1, "cmIndex" => 2})
-      # Map ordering is not guaranteed, so check both possible orderings
-      assert result in ["1.2", "2.1"]
+    test "joins multiple values in the table index order" do
+      indices = %{"ifIndex" => 1, "cmIndex" => 2}
+
+      assert TableLoader.build_index_key(indices, ["ifIndex", "cmIndex"]) == "1.2"
     end
   end
 end

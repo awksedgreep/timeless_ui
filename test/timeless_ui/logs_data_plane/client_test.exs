@@ -65,6 +65,20 @@ defmodule TimelessUI.LogsDataPlane.ClientTest do
              Client.field_values("arbitrary", [], base_url: "http://127.0.0.1:1")
   end
 
+  test "rejects an unbounded historical query before transport" do
+    assert {:error, {:invalid_query_limit, 10_000}} =
+             Client.query([limit: 10_001], base_url: "http://127.0.0.1:1")
+  end
+
+  test "halts a historical response as soon as its byte limit is exceeded" do
+    endpoint = serve_once(String.duplicate("x", 1_024))
+
+    assert {:error, {:response_too_large, size}} =
+             Client.query([limit: 10], base_url: endpoint, max_body_bytes: 32)
+
+    assert size > 32
+  end
+
   test "process-backed calls replace caller credentials with a short-lived token" do
     token = "header.payload.signature"
     endpoint = serve_once("{}", self())

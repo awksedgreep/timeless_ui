@@ -27,6 +27,8 @@ defmodule TimelessUI.TelemetryDataPlaneStartupFixture do
   end
 
   def stats(data_dir, opts) do
+    if notify = Keyword.get(opts, :stats_notify), do: send(notify, :startup_stats_called)
+
     case Keyword.get(opts, :fixture_result, :ready) do
       :ready ->
         %{

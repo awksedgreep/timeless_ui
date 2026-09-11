@@ -142,50 +142,118 @@ defmodule TimelessUI.Poller.Collectors.PrometheusCollector do
   end
 
   defp parse_prometheus_metrics(body, host_name, ts) do
-    body
-    |> String.split("\n")
-    |> Enum.reject(&(String.starts_with?(&1, "#") or String.trim(&1) == ""))
-    |> Enum.map(&parse_metric_line(&1, host_name, ts))
-    |> Enum.reject(&is_nil/1)
+    parse_prometheus_lines(body, host_name, ts, [])
+    |> Enum.reverse()
   end
 
+  defp parse_prometheus_lines("", _host_name, _ts, metrics), do: metrics
+
+  defp parse_prometheus_lines(body, host_name, ts, metrics) do
+    {line, rest} =
+      case :binary.match(body, "\n") do
+        {index, 1} ->
+          {binary_part(body, 0, index), binary_part(body, index + 1, byte_size(body) - index - 1)}
+
+        :nomatch ->
+          {body, ""}
+      end
+
+    metrics =
+      case parse_metric_line(trim_cr(line), host_name, ts) do
+        nil -> metrics
+        metric -> [metric | metrics]
+      end
+
+    parse_prometheus_lines(rest, host_name, ts, metrics)
+  end
+
+  defp parse_metric_line("", _host_name, _ts), do: nil
+  defp parse_metric_line(<<"#", _rest::binary>>, _host_name, _ts), do: nil
+
   defp parse_metric_line(line, host_name, ts) do
-    case Regex.run(~r/^([a-zA-Z_:][a-zA-Z0-9_:]*)\{([^}]*)\}\s+([\d.eE+\-]+)/, line) do
-      [_, name, labels_str, value] ->
-        %{
-          name: name,
-          host: host_name,
-          type: "gauge",
-          labels: parse_labels(labels_str),
-          val: parse_value(value),
-          ts: ts
-        }
-
-      _ ->
-        case Regex.run(~r/^([a-zA-Z_:][a-zA-Z0-9_:]*)\s+([\d.eE+\-]+)/, line) do
-          [_, name, value] ->
-            %{
-              name: name,
-              host: host_name,
-              type: "gauge",
-              labels: %{},
-              val: parse_value(value),
-              ts: ts
-            }
-
-          _ ->
-            nil
-        end
+    with {:ok, name, labels, value_text} <- split_sample(line),
+         true <- valid_metric_name?(name),
+         {value, _rest} <- Float.parse(value_text) do
+      %{
+        name: name,
+        host: host_name,
+        type: "gauge",
+        labels: labels,
+        val: value,
+        ts: ts
+      }
+    else
+      _ -> nil
     end
   rescue
     _ -> nil
   end
 
-  defp parse_value(value_str) do
-    case Float.parse(value_str) do
-      {num, _} -> num
-      :error -> 0.0
+  defp split_sample(line) do
+    case :binary.match(line, "{") do
+      {open, 1} ->
+        after_open = binary_part(line, open + 1, byte_size(line) - open - 1)
+
+        case :binary.match(after_open, "}") do
+          {close, 1} ->
+            name = binary_part(line, 0, open)
+            labels = binary_part(after_open, 0, close)
+            rest = binary_part(after_open, close + 1, byte_size(after_open) - close - 1)
+
+            with {:ok, value} <- first_token(rest) do
+              {:ok, name, parse_labels(labels), value}
+            end
+
+          :nomatch ->
+            :error
+        end
+
+      :nomatch ->
+        with {:ok, name, rest} <- name_and_rest(line),
+             {:ok, value} <- first_token(rest) do
+          {:ok, name, %{}, value}
+        end
     end
+  end
+
+  defp name_and_rest(line) do
+    case :binary.match(line, [" ", "\t"]) do
+      {index, 1} when index > 0 ->
+        {:ok, binary_part(line, 0, index), binary_part(line, index, byte_size(line) - index)}
+
+      _ ->
+        :error
+    end
+  end
+
+  defp first_token(text) do
+    text = String.trim_leading(text)
+
+    case :binary.match(text, [" ", "\t"]) do
+      {index, 1} when index > 0 -> {:ok, binary_part(text, 0, index)}
+      :nomatch when text != "" -> {:ok, text}
+      _ -> :error
+    end
+  end
+
+  defp valid_metric_name?(<<first, rest::binary>>)
+       when first in ?a..?z or first in ?A..?Z or first in [?:, ?_],
+       do: valid_metric_name_rest?(rest)
+
+  defp valid_metric_name?(_name), do: false
+
+  defp valid_metric_name_rest?(<<>>), do: true
+
+  defp valid_metric_name_rest?(<<char, rest::binary>>)
+       when char in ?a..?z or char in ?A..?Z or char in ?0..?9 or char in [?:, ?_],
+       do: valid_metric_name_rest?(rest)
+
+  defp valid_metric_name_rest?(_rest), do: false
+
+  defp trim_cr(line) do
+    if byte_size(line) > 0 and :binary.last(line) == ?\r,
+      do: binary_part(line, 0, byte_size(line) - 1),
+      else: line
   end
 
   defp parse_labels(""), do: %{}

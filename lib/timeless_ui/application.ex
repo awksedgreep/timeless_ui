@@ -13,10 +13,13 @@ defmodule TimelessUI.Application do
     children =
       [
         TimelessUIWeb.Telemetry,
+        {Task.Supervisor, name: TimelessUI.TaskSupervisor},
+        {Task.Supervisor, name: TimelessUI.TelemetryTailSupervisor, max_children: 64},
         TimelessUI.Accounts.LoginThrottle,
         TimelessUI.Repo,
         {Ecto.Migrator,
-         repos: Application.fetch_env!(:timeless_ui, :ecto_repos), skip: skip_migrations?()}
+         repos: Application.fetch_env!(:timeless_ui, :ecto_repos), skip: skip_migrations?()},
+        TimelessUI.Poller.Snmp.TableLoader
       ] ++
         telemetry_policy_children(data_planes) ++
         telemetry_data_plane_children(data_planes) ++
@@ -28,6 +31,7 @@ defmodule TimelessUI.Application do
           TimelessCanvas.Supervisor,
           {TimelessUI.Poller.Supervisor,
            Application.get_env(:timeless_ui, :poller, enabled: false)},
+          TimelessUI.OperationsMonitor,
           TimelessUIWeb.Endpoint
         ]
 

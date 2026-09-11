@@ -35,45 +35,35 @@ defmodule TimelessUI.Poller.MetricsWriter do
     {text_metrics, numeric_metrics} =
       Enum.split_with(metrics, fn m -> Map.get(m, :val_type) == :text end)
 
-    if numeric_metrics != [] do
-      numeric_entries =
-        Enum.map(numeric_metrics, fn metric ->
-          labels =
-            Map.merge(
-              %{"host" => metric.host, "type" => metric.type},
-              metric.labels || %{}
-            )
-
-          {metric.name, labels, metric.val, metric.ts}
-        end)
-
-      try do
-        apply(TimelessMetrics, :write_batch, [store, numeric_entries])
-      rescue
-        e -> Logger.error("Failed to write numeric metrics: #{inspect(e)}")
-      end
+    with :ok <- write_embedded_batch(store, :write_batch, numeric_metrics),
+         :ok <- write_embedded_batch(store, :write_text_batch, text_metrics) do
+      :ok
     end
+  end
 
-    if text_metrics != [] do
-      text_entries =
-        Enum.map(text_metrics, fn metric ->
-          labels =
-            Map.merge(
-              %{"host" => metric.host, "type" => metric.type},
-              metric.labels || %{}
-            )
+  defp write_embedded_batch(_store, _operation, []), do: :ok
 
-          {metric.name, labels, metric.val, metric.ts}
-        end)
+  defp write_embedded_batch(store, operation, metrics) do
+    entries =
+      Enum.map(metrics, fn metric ->
+        labels =
+          Map.merge(
+            %{"host" => metric.host, "type" => metric.type},
+            metric.labels || %{}
+          )
 
-      try do
-        apply(TimelessMetrics, :write_text_batch, [store, text_entries])
-      rescue
-        e -> Logger.error("Failed to write text metrics: #{inspect(e)}")
-      end
+        {metric.name, labels, metric.val, metric.ts}
+      end)
+
+    case apply(TimelessMetrics, operation, [store, entries]) do
+      :ok -> :ok
+      {:error, _reason} = error -> error
+      other -> {:error, {:unexpected_metrics_write_result, other}}
     end
-
-    :ok
+  rescue
+    error ->
+      Logger.error("Failed to write #{operation} metrics: #{inspect(error)}")
+      {:error, error}
   end
 
   defp metrics_writer do

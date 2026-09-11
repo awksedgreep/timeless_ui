@@ -19,7 +19,7 @@ defmodule TimelessUI.MetricsAPI do
 
   def get_target(id) do
     if rust_mode?() do
-      case Enum.find(elem_or_empty(list_targets()), &(&1.id == id)) do
+      case TimelessUI.PrometheusTargets.get(id) do
         nil -> {:error, :not_found}
         target -> {:ok, target}
       end
@@ -30,8 +30,8 @@ defmodule TimelessUI.MetricsAPI do
 
   def create_target(params) when is_map(params) do
     if rust_mode?() do
-      with {:ok, {target, _version}} <- TimelessUI.PrometheusTargets.create(params),
-           :ok <- sync_rust_targets() do
+      with {:ok, {target, version}} <- TimelessUI.PrometheusTargets.create(params),
+           :ok <- sync_rust_targets(version) do
         {:ok, target.id}
       end
     else
@@ -41,8 +41,8 @@ defmodule TimelessUI.MetricsAPI do
 
   def update_target(id, params) when is_map(params) do
     if rust_mode?() do
-      with {:ok, {_target, _version}} <- TimelessUI.PrometheusTargets.update(id, params),
-           :ok <- sync_rust_targets() do
+      with {:ok, {_target, version}} <- TimelessUI.PrometheusTargets.update(id, params),
+           :ok <- sync_rust_targets(version) do
         :ok
       end
     else
@@ -52,8 +52,8 @@ defmodule TimelessUI.MetricsAPI do
 
   def delete_target(id) do
     if rust_mode?() do
-      with {:ok, :ok} <- TimelessUI.PrometheusTargets.delete(id),
-           :ok <- sync_rust_targets() do
+      with {:ok, version} <- TimelessUI.PrometheusTargets.delete(id),
+           :ok <- sync_rust_targets(version) do
         :ok
       end
     else
@@ -61,11 +61,11 @@ defmodule TimelessUI.MetricsAPI do
     end
   end
 
-  def sync_rust_targets do
+  def sync_rust_targets(known_version \\ nil) do
     if rust_mode?(),
       do:
         TimelessUI.MetricsDataPlane.Client.replace_scrape_targets(
-          TimelessUI.PrometheusTargets.payload()
+          TimelessUI.PrometheusTargets.payload(known_version)
         ),
       else: :ok
   end
@@ -102,9 +102,6 @@ defmodule TimelessUI.MetricsAPI do
 
   defp rust_mode?,
     do: Application.get_env(:timeless_ui, :metrics_scraper_mode, :embedded) == :rust
-
-  defp elem_or_empty({:ok, value}), do: value
-  defp elem_or_empty(_), do: []
 
   defp embedded(operation) do
     if Application.get_env(:timeless_ui, :metrics_scraper_mode, :embedded) == :embedded,

@@ -7,6 +7,7 @@ defmodule TimelessUI.TracesDataPlane.Client do
   """
 
   alias TimelessUI.TracesDataPlane.Process, as: DataPlaneProcess
+  alias TimelessUI.TelemetryDataPlane.Tail
 
   @default_timeout 30_000
   @kinds ~w(internal server client producer consumer)
@@ -106,53 +107,46 @@ defmodule TimelessUI.TracesDataPlane.Client do
     allowed = [:name, :service, :kind, :status, :attributes]
     unknown = Keyword.keys(filters) -- allowed
 
-    with true <- unknown == [] || {:error, {:unsupported_capability, :traces_tail_filters, unknown}},
+    with true <-
+           unknown == [] || {:error, {:unsupported_capability, :traces_tail_filters, unknown}},
          {:ok, params} <- tail_params(filters),
          {:ok, endpoint, owner_header} <- resolve_connection(opts) do
-      parent = subscriber
+      Tail.start(subscriber, fn ->
+        Req.request(
+          method: :get,
+          url: endpoint <> "/select/timeless/api/spans/tail",
+          params: params,
+          headers: request_headers(opts, owner_header),
+          receive_timeout: :infinity,
+          retry: false,
+          decode_body: false,
+          into: fn {:data, chunk}, {req, resp} ->
+            if resp.status == 200 do
+              case Tail.split_lines(Process.get(:tail_buffer, ""), chunk) do
+                {:ok, lines, rest} ->
+                  Process.put(:tail_buffer, rest)
 
-      {:ok, pid} =
-        Task.start(fn ->
-          Req.request(
-            method: :get,
-            url: endpoint <> "/select/timeless/api/spans/tail",
-            params: params,
-            headers: request_headers(opts, owner_header),
-            receive_timeout: :infinity,
-            retry: false,
-            decode_body: false,
-            into: fn {:data, chunk}, {req, resp} ->
-              if resp.status == 200 do
-                buffer = Process.get(:tail_buffer, "") <> chunk
-                {lines, rest} = split_complete_lines(buffer)
-                Process.put(:tail_buffer, rest)
+                  Enum.each(lines, fn line ->
+                    # A row that does not decode is skipped rather than crashing
+                    # the tail: one malformed span must not end the stream.
+                    with {:ok, row} <- Jason.decode(line),
+                         {:ok, span} <- decode_span(row) do
+                      send(subscriber, {:timeless_traces, :span, span})
+                    end
+                  end)
 
-                Enum.each(lines, fn line ->
-                  # A row that does not decode is skipped rather than crashing
-                  # the tail: one malformed span must not end the stream.
-                  with {:ok, row} <- Jason.decode(line),
-                       {:ok, span} <- decode_span(row) do
-                    send(parent, {:timeless_traces, :span, span})
-                  end
-                end)
+                {:error, :line_too_large} ->
+                  Process.put(:tail_buffer, "")
               end
-
-              {:cont, {req, resp}}
             end
-          )
-        end)
 
-      {:ok, pid}
+            {:cont, {req, resp}}
+          end
+        )
+      end)
     else
       {:error, _reason} = error -> error
     end
-  end
-
-  # Keepalive newlines arrive as empty lines and are dropped here.
-  defp split_complete_lines(buffer) do
-    parts = String.split(buffer, "\n")
-    {complete, [rest]} = Enum.split(parts, length(parts) - 1)
-    {Enum.reject(complete, &(&1 == "")), rest}
   end
 
   @doc false

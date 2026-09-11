@@ -6,7 +6,7 @@ defmodule TimelessUI.Poller.SnmpTables do
   import Ecto.Query
 
   alias TimelessUI.Repo
-  alias TimelessUI.Poller.Snmp.{Table, Column}
+  alias TimelessUI.Poller.Snmp.{Table, Column, TableLoader}
 
   # ── Table CRUD ─────────────────────────────────────────────────────
 
@@ -33,16 +33,18 @@ defmodule TimelessUI.Poller.SnmpTables do
     %Table{}
     |> Table.changeset(attrs)
     |> Repo.insert()
+    |> invalidate_cache()
   end
 
   def update_table(%Table{} = table, attrs) do
     table
     |> Table.changeset(attrs)
     |> Repo.update()
+    |> invalidate_cache()
   end
 
   def delete_table(%Table{} = table) do
-    Repo.delete(table)
+    table |> Repo.delete() |> invalidate_cache()
   end
 
   def change_table(%Table{} = table, attrs \\ %{}) do
@@ -63,19 +65,28 @@ defmodule TimelessUI.Poller.SnmpTables do
     %Column{}
     |> Column.changeset(Map.put(attrs, :snmp_table_id, table.id))
     |> Repo.insert()
+    |> invalidate_cache()
   end
 
   def update_column(%Column{} = column, attrs) do
     column
     |> Column.changeset(attrs)
     |> Repo.update()
+    |> invalidate_cache()
   end
 
   def delete_column(%Column{} = column) do
-    Repo.delete(column)
+    column |> Repo.delete() |> invalidate_cache()
   end
 
   def change_column(%Column{} = column, attrs \\ %{}) do
     Column.changeset(column, attrs)
   end
+
+  defp invalidate_cache({:ok, _value} = result) do
+    TableLoader.invalidate_all()
+    result
+  end
+
+  defp invalidate_cache(result), do: result
 end

@@ -63,6 +63,7 @@ defmodule TimelessUI.TelemetryDataPlane.Process do
          phase: :starting,
          ready?: false,
          startup: nil,
+         migration_stats: %{},
          error: nil,
          waiters: [],
          partial_line: ""
@@ -96,7 +97,7 @@ defmodule TimelessUI.TelemetryDataPlane.Process do
   end
 
   def handle_call(:status, _from, state) do
-    migration = startup_stats(state.config)
+    migration = state.migration_stats
 
     report =
       Map.merge(migration, %{
@@ -126,18 +127,20 @@ defmodule TimelessUI.TelemetryDataPlane.Process do
   end
 
   def handle_call(:retry, _from, %{phase: :failed} = state) do
-    {:reply, :ok, begin_prepare(%{state | error: nil, startup: nil})}
+    {:reply, :ok, begin_prepare(%{state | error: nil, startup: nil, migration_stats: %{}})}
   end
 
   def handle_call(:retry, _from, state), do: {:reply, {:error, {:not_failed, state.phase}}, state}
 
   @impl true
   def handle_info(
-        {:startup_result, pid, result},
+        {:startup_result, pid, result, migration_stats},
         %{prepare_task: %{pid: pid, ref: reference}} = state
       ) do
     Process.demonitor(reference, [:flush])
-    {:noreply, prepare_finished(result, %{state | prepare_task: nil})}
+
+    {:noreply,
+     prepare_finished(result, %{state | prepare_task: nil, migration_stats: migration_stats})}
   end
 
   def handle_info(
@@ -181,7 +184,8 @@ defmodule TimelessUI.TelemetryDataPlane.Process do
     {pid, reference} =
       spawn_monitor(fn ->
         result = apply(config.startup_module, :prepare, [config.data_dir, config.startup_opts])
-        send(owner, {:startup_result, self(), result})
+        migration_stats = startup_stats(config)
+        send(owner, {:startup_result, self(), result, migration_stats})
       end)
 
     %{state | phase: :migrating, ready?: false, prepare_task: %{pid: pid, ref: reference}}

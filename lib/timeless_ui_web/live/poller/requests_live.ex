@@ -4,55 +4,58 @@ defmodule TimelessUIWeb.PollerLive.Requests do
   import TimelessUIWeb.PollerNav
 
   alias TimelessUI.Poller.{Requests, Request}
-  alias Ecto.Changeset
 
   @impl true
   def mount(_params, _session, socket) do
+    requests = Requests.list_requests()
+
     {:ok,
      socket
      |> assign(
        page_title: "Poller Requests",
-       requests: Requests.list_requests(),
+       requests_empty?: requests == [],
+       requests_count: length(requests),
        show_form: false,
        editing: nil,
-       changeset: Requests.change_request(%Request{})
-     )}
+       form: to_form(Requests.change_request(%Request{}))
+     )
+     |> stream(:requests, requests)}
   end
 
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="max-w-4xl mx-auto p-8">
-      <.poller_nav current={:requests} />
+    <Layouts.app flash={@flash} current_scope={@current_scope}>
+      <div id="poller-requests-page" class="max-w-4xl mx-auto p-8">
+        <.poller_nav current={:requests} />
 
-      <div class="flex items-center justify-between mb-8">
-        <h1 class="text-2xl font-bold">Poller Requests</h1>
-        <button :if={!@show_form} phx-click="show_add_form" class="btn btn-primary">
-          Add Request
-        </button>
-      </div>
+        <div class="flex items-center justify-between mb-8">
+          <h1 class="text-2xl font-bold">Poller Requests</h1>
+          <button :if={!@show_form} phx-click="show_add_form" class="btn btn-primary">
+            Add Request
+          </button>
+        </div>
 
-      <.request_form :if={@show_form} changeset={@changeset} editing={@editing} />
+        <.request_form :if={@show_form} form={@form} editing={@editing} />
 
-      <div :if={@requests == []} class="text-center text-base-content/60 py-16">
-        <p class="text-lg mb-4">No requests configured</p>
-        <p>Click "Add Request" to define a polling request template.</p>
-      </div>
+        <div :if={@requests_empty?} class="text-center text-base-content/60 py-16">
+          <p class="text-lg mb-4">No requests configured</p>
+          <p>Click "Add Request" to define a polling request template.</p>
+        </div>
 
-      <div :if={@requests != []} class="overflow-x-auto">
-        <table class="table table-zebra">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Type</th>
-              <th>Tags</th>
-              <th>Description</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            <%= for request <- @requests do %>
+        <div class={["overflow-x-auto", @requests_empty? && "hidden"]}>
+          <table class="table table-zebra">
+            <thead>
               <tr>
+                <th>Name</th>
+                <th>Type</th>
+                <th>Tags</th>
+                <th>Description</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="poller-requests" phx-update="stream">
+              <tr :for={{id, request} <- @streams.requests} id={id}>
                 <td class="font-medium">{request.name}</td>
                 <td><span class="badge badge-outline">{request.type}</span></td>
                 <td class="text-sm">{request.tags}</td>
@@ -61,6 +64,7 @@ defmodule TimelessUIWeb.PollerLive.Requests do
                   <div class="flex gap-1">
                     <button
                       phx-click="edit_request"
+                      id={"edit-request-#{request.id}"}
                       phx-value-id={request.id}
                       class="btn btn-xs btn-ghost"
                     >
@@ -68,6 +72,7 @@ defmodule TimelessUIWeb.PollerLive.Requests do
                     </button>
                     <button
                       phx-click="delete_request"
+                      id={"delete-request-#{request.id}"}
                       phx-value-id={request.id}
                       data-confirm={"Delete request \"#{request.name}\"? This cannot be undone."}
                       class="btn btn-xs btn-error btn-outline"
@@ -77,17 +82,17 @@ defmodule TimelessUIWeb.PollerLive.Requests do
                   </div>
                 </td>
               </tr>
-            <% end %>
-          </tbody>
-        </table>
+            </tbody>
+          </table>
+        </div>
       </div>
-    </div>
+    </Layouts.app>
     """
   end
 
   defp request_form(assigns) do
-    config = Changeset.get_field(assigns.changeset, :config) || %{}
-    type = Changeset.get_field(assigns.changeset, :type)
+    config = assigns.form[:config].value || %{}
+    type = assigns.form[:type].value
     is_snmp = type in ~w(snmpget snmpwalk snmpbulkwalk)
 
     assigns =
@@ -103,52 +108,26 @@ defmodule TimelessUIWeb.PollerLive.Requests do
         <h2 class="card-title mb-4">
           {if @editing, do: "Edit Request", else: "Add Request"}
         </h2>
-        <form phx-submit="save_request">
+        <.form for={@form} id="poller-request-form" phx-submit="save_request">
           <div class="grid grid-cols-2 gap-6 mb-6">
-            <div>
-              <div class="text-sm text-base-content/70 mb-2">Name *</div>
-              <input
-                type="text"
-                name="request[name]"
-                value={Changeset.get_field(@changeset, :name)}
-                required
-                class="input input-bordered w-full"
-                placeholder="ifX"
-              />
-            </div>
-            <div>
-              <div class="text-sm text-base-content/70 mb-2">Type *</div>
-              <select name="request[type]" class="select select-bordered w-full" required>
-                <option value="">Select type...</option>
-                <%= for type <- Request.valid_types() do %>
-                  <option value={type} selected={Changeset.get_field(@changeset, :type) == type}>
-                    {type}
-                  </option>
-                <% end %>
-              </select>
-            </div>
+            <.input field={@form[:name]} type="text" label="Name" required placeholder="ifX" />
+            <.input
+              field={@form[:type]}
+              type="select"
+              label="Type"
+              required
+              prompt="Select type..."
+              options={Request.valid_types()}
+            />
           </div>
           <div class="grid grid-cols-2 gap-6 mb-6">
-            <div>
-              <div class="text-sm text-base-content/70 mb-2">Tags</div>
-              <input
-                type="text"
-                name="request[tags]"
-                value={Changeset.get_field(@changeset, :tags) || ""}
-                class="input input-bordered w-full"
-                placeholder="ifX, snmp"
-              />
-            </div>
-            <div>
-              <div class="text-sm text-base-content/70 mb-2">Description</div>
-              <input
-                type="text"
-                name="request[description]"
-                value={Changeset.get_field(@changeset, :description)}
-                class="input input-bordered w-full"
-                placeholder="Optional description"
-              />
-            </div>
+            <.input field={@form[:tags]} type="text" label="Tags" placeholder="ifX, snmp" />
+            <.input
+              field={@form[:description]}
+              type="text"
+              label="Description"
+              placeholder="Optional description"
+            />
           </div>
           <div :if={@is_snmp} class="grid grid-cols-2 gap-6 mb-6">
             <div>
@@ -178,7 +157,7 @@ defmodule TimelessUIWeb.PollerLive.Requests do
               {if @editing, do: "Update", else: "Create"}
             </button>
           </div>
-        </form>
+        </.form>
       </div>
     </div>
     """
@@ -192,7 +171,7 @@ defmodule TimelessUIWeb.PollerLive.Requests do
      assign(socket,
        show_form: true,
        editing: nil,
-       changeset: Requests.change_request(%Request{})
+       form: to_form(Requests.change_request(%Request{}))
      )}
   end
 
@@ -201,17 +180,21 @@ defmodule TimelessUIWeb.PollerLive.Requests do
   end
 
   def handle_event("edit_request", %{"id" => id}, socket) do
-    request = Requests.get_request!(id)
-
-    {:noreply,
-     assign(socket,
-       show_form: true,
-       editing: request,
-       changeset: Requests.change_request(request)
-     )}
+    with {id, ""} <- Integer.parse(id),
+         {:ok, request} <- Requests.get_request(id) do
+      {:noreply,
+       assign(socket,
+         show_form: true,
+         editing: request,
+         form: to_form(Requests.change_request(request))
+       )}
+    else
+      _ -> {:noreply, put_flash(socket, :error, "Request no longer exists.")}
+    end
   end
 
   def handle_event("save_request", %{"request" => params}, socket) do
+    creating? = socket.assigns.editing == nil
     table = String.trim(params["table"] || "")
     community = String.trim(params["community"] || "public")
 
@@ -235,34 +218,47 @@ defmodule TimelessUIWeb.PollerLive.Requests do
       end
 
     case result do
-      {:ok, _request} ->
+      {:ok, request} ->
         action = if socket.assigns.editing, do: "updated", else: "created"
+        requests_count = socket.assigns.requests_count + if(creating?, do: 1, else: 0)
 
         {:noreply,
          socket
-         |> assign(show_form: false, editing: nil, requests: Requests.list_requests())
+         |> assign(
+           show_form: false,
+           editing: nil,
+           requests_empty?: false,
+           requests_count: requests_count
+         )
+         |> stream_insert(:requests, request)
          |> put_flash(:info, "Request #{action}.")}
 
       {:error, changeset} ->
         {:noreply,
          socket
-         |> assign(changeset: changeset)
+         |> assign(form: to_form(changeset))
          |> put_flash(:error, "Failed to save request.")}
     end
   end
 
   def handle_event("delete_request", %{"id" => id}, socket) do
-    request = Requests.get_request!(id)
+    with {id, ""} <- Integer.parse(id),
+         {:ok, request} <- Requests.get_request(id) do
+      case Requests.delete_request(request) do
+        {:ok, deleted} ->
+          requests_count = max(socket.assigns.requests_count - 1, 0)
 
-    case Requests.delete_request(request) do
-      {:ok, _} ->
-        {:noreply,
-         socket
-         |> assign(requests: Requests.list_requests())
-         |> put_flash(:info, "Request deleted.")}
+          {:noreply,
+           socket
+           |> assign(requests_empty?: requests_count == 0, requests_count: requests_count)
+           |> stream_delete(:requests, deleted)
+           |> put_flash(:info, "Request deleted.")}
 
-      {:error, _} ->
-        {:noreply, put_flash(socket, :error, "Failed to delete request.")}
+        {:error, _} ->
+          {:noreply, put_flash(socket, :error, "Failed to delete request.")}
+      end
+    else
+      _ -> {:noreply, put_flash(socket, :error, "Request no longer exists.")}
     end
   end
 end

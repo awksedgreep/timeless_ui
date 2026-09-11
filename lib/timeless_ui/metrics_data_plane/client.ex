@@ -10,6 +10,8 @@ defmodule TimelessUI.MetricsDataPlane.Client do
   alias TimelessUI.MetricsDataPlane.Process, as: DataPlaneProcess
 
   @default_timeout 30_000
+  @default_max_export_points 20_000
+  @default_max_export_bytes 16 * 1_024 * 1_024
 
   def health(opts \\ []), do: json_request(:get, "/health", opts)
   def stats(opts \\ []), do: json_request(:get, "/select/metrics/stats", opts)
@@ -120,9 +122,18 @@ defmodule TimelessUI.MetricsDataPlane.Client do
       |> Map.put("from", from)
       |> Map.put("to", to)
 
-    with {:ok, 200, body} <-
-           raw_request(:get, "/api/v1/export", Keyword.put(opts, :params, params)),
-         {:ok, series} <- decode_export(body) do
+    max_points = Keyword.get(opts, :max_points, @default_max_export_points)
+    max_bytes = Keyword.get(opts, :max_body_bytes, @default_max_export_bytes)
+
+    with true <- (is_integer(max_points) and max_points > 0) || {:error, :invalid_max_points},
+         true <- (is_integer(max_bytes) and max_bytes > 0) || {:error, :invalid_max_body_bytes},
+         {:ok, 200, body} <-
+           raw_request(
+             :get,
+             "/api/v1/export",
+             opts |> Keyword.put(:params, params) |> Keyword.put(:max_body_bytes, max_bytes)
+           ),
+         {:ok, series} <- decode_export(body, max_points) do
       {:ok, series}
     else
       {:ok, status, body} -> {:error, {:unexpected_response, status, excerpt(body)}}
@@ -166,6 +177,8 @@ defmodule TimelessUI.MetricsDataPlane.Client do
         decode_body: false
       ]
 
+      request_options = maybe_limit_response(request_options, opts)
+
       request_options =
         case Keyword.fetch(opts, :body) do
           {:ok, body} -> Keyword.put(request_options, :body, body)
@@ -175,11 +188,15 @@ defmodule TimelessUI.MetricsDataPlane.Client do
       request = Keyword.get(opts, :request, &Req.request/1)
 
       case request.(request_options) do
-        {:ok, %{status: status, body: body}} when is_integer(status) and is_binary(body) ->
-          {:ok, status, body}
+        {:ok, %{status: status, body: body}} when is_integer(status) ->
+          case bounded_body(body, Keyword.get(opts, :max_body_bytes)) do
+            {:ok, body} when is_binary(body) -> {:ok, status, body}
+            {:error, _reason} = error -> error
+            {:ok, body} -> {:error, {:invalid_response_body, status, body}}
+          end
 
-        {:ok, %{status: status, body: body}} ->
-          {:error, {:invalid_response_body, status, body}}
+        {:ok, response} ->
+          {:error, {:invalid_response, response}}
 
         {:error, reason} ->
           {:error, {:transport, reason}}
@@ -190,6 +207,41 @@ defmodule TimelessUI.MetricsDataPlane.Client do
   catch
     :exit, reason -> {:error, {:transport, reason}}
   end
+
+  defp maybe_limit_response(request_options, opts) do
+    case Keyword.get(opts, :max_body_bytes) do
+      maximum when is_integer(maximum) and maximum > 0 ->
+        Keyword.put(request_options, :into, fn {:data, chunk}, {request, response} ->
+          {size, chunks} =
+            case response.body do
+              {:bounded_body, size, chunks} -> {size, chunks}
+              _body -> {0, []}
+            end
+
+          size = size + byte_size(chunk)
+          response = %{response | body: {:bounded_body, size, [chunk | chunks]}}
+
+          if size > maximum,
+            do: {:halt, {request, response}},
+            else: {:cont, {request, response}}
+        end)
+
+      _other ->
+        request_options
+    end
+  end
+
+  defp bounded_body({:bounded_body, size, _chunks}, maximum) when size > maximum,
+    do: {:error, {:response_too_large, size}}
+
+  defp bounded_body({:bounded_body, _size, chunks}, _maximum),
+    do: {:ok, chunks |> Enum.reverse() |> IO.iodata_to_binary()}
+
+  defp bounded_body(body, maximum)
+       when is_binary(body) and is_integer(maximum) and byte_size(body) > maximum,
+       do: {:error, {:response_too_large, byte_size(body)}}
+
+  defp bounded_body(body, _maximum), do: {:ok, body}
 
   defp resolve_connection(opts) do
     case Keyword.fetch(opts, :base_url) do
@@ -239,19 +291,26 @@ defmodule TimelessUI.MetricsDataPlane.Client do
   defp loopback_address?({127, _, _, _}), do: true
   defp loopback_address?(_address), do: false
 
-  defp decode_export(""), do: {:ok, []}
+  defp decode_export("", _max_points), do: {:ok, []}
 
-  defp decode_export(body) do
+  defp decode_export(body, max_points) do
     body
     |> String.split("\n", trim: true)
-    |> Enum.reduce_while({:ok, []}, fn line, {:ok, rows} ->
+    |> Enum.reduce_while({:ok, [], 0}, fn line, {:ok, rows, point_count} ->
       case decode_export_line(line) do
-        {:ok, row} -> {:cont, {:ok, [row | rows]}}
-        {:error, reason} -> {:halt, {:error, {:invalid_response, reason}}}
+        {:ok, row} ->
+          next_count = point_count + length(row.points)
+
+          if next_count <= max_points,
+            do: {:cont, {:ok, [row | rows], next_count}},
+            else: {:halt, {:error, {:response_exceeds_point_limit, max_points}}}
+
+        {:error, reason} ->
+          {:halt, {:error, {:invalid_response, reason}}}
       end
     end)
     |> case do
-      {:ok, rows} -> {:ok, Enum.reverse(rows)}
+      {:ok, rows, _point_count} -> {:ok, Enum.reverse(rows)}
       {:error, _reason} = error -> error
     end
   end

@@ -2,35 +2,40 @@ defmodule TimelessUIWeb.ScrapeTargetLive do
   use TimelessUIWeb, :live_view
 
   alias TimelessUI.MetricsAPI
-
-  @refresh_interval :timer.seconds(15)
+  alias TimelessUI.OperationsMonitor
 
   @impl true
   def mount(_params, _session, socket) do
-    if connected?(socket), do: Process.send_after(self(), :refresh, @refresh_interval)
+    targets =
+      if connected?(socket),
+        do: OperationsMonitor.subscribe(:scrape_targets),
+        else: OperationsMonitor.snapshot(:scrape_targets)
 
     {:ok,
      socket
      |> assign(
        page_title: "Scrape Targets",
-       targets: [],
+       targets_empty?: true,
        loading: true,
        show_form: false,
        editing: nil,
        form: default_form(),
        expanded_id: nil
      )
-     |> load_targets()}
+     |> load_targets(targets)}
   end
 
-  defp load_targets(socket) do
-    case MetricsAPI.list_targets() do
+  defp load_targets(socket, result) do
+    case result do
       {:ok, targets} ->
-        assign(socket, targets: targets, loading: false)
+        socket
+        |> assign(targets_empty?: targets == [], loading: false)
+        |> stream(:targets, targets, reset: true)
 
       {:error, reason} ->
         socket
-        |> assign(targets: [], loading: false)
+        |> assign(targets_empty?: true, loading: false)
+        |> stream(:targets, [], reset: true)
         |> put_flash(:error, "Failed to load targets: #{inspect(reason)}")
     end
   end
@@ -116,42 +121,47 @@ defmodule TimelessUIWeb.ScrapeTargetLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="max-w-4xl mx-auto p-8">
-      <div class="flex items-center justify-between mb-8">
-        <h1 class="text-2xl font-bold">Scrape Targets</h1>
-        <button :if={!@show_form} phx-click="show_add_form" class="btn btn-primary">
-          Add Target
-        </button>
-      </div>
+    <Layouts.app flash={@flash} current_scope={@current_scope}>
+      <div id="scrape-target-page" class="max-w-4xl mx-auto p-8">
+        <div class="flex items-center justify-between mb-8">
+          <h1 class="text-2xl font-bold">Scrape Targets</h1>
+          <button
+            :if={!@show_form}
+            id="add-scrape-target"
+            phx-click="show_add_form"
+            class="btn btn-primary"
+          >
+            Add Target
+          </button>
+        </div>
 
-      <.form_section
-        :if={@show_form}
-        form={@form}
-        editing={@editing}
-      />
+        <.form_section
+          :if={@show_form}
+          form={@form}
+          editing={@editing}
+        />
 
-      <div :if={@loading} class="text-center py-16">
-        <span class="loading loading-spinner loading-lg"></span>
-      </div>
+        <div :if={@loading} class="text-center py-16">
+          <span class="loading loading-spinner loading-lg"></span>
+        </div>
 
-      <div :if={!@loading && @targets == []} class="text-center text-base-content/60 py-16">
-        <p class="text-lg mb-4">No scrape targets configured</p>
-        <p>Click "Add Target" to start scraping Prometheus endpoints.</p>
-      </div>
+        <div :if={!@loading && @targets_empty?} class="text-center text-base-content/60 py-16">
+          <p class="text-lg mb-4">No scrape targets configured</p>
+          <p>Click "Add Target" to start scraping Prometheus endpoints.</p>
+        </div>
 
-      <div :if={!@loading && @targets != []} class="overflow-x-auto">
-        <table class="table table-zebra">
-          <thead>
-            <tr>
-              <th>Job Name</th>
-              <th>Address</th>
-              <th>Interval</th>
-              <th>Health</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            <%= for target <- @targets do %>
+        <div class={["overflow-x-auto", (@loading or @targets_empty?) && "hidden"]}>
+          <table id="scrape-targets" phx-update="stream" class="table table-zebra">
+            <thead id="scrape-targets-head">
+              <tr>
+                <th>Job Name</th>
+                <th>Address</th>
+                <th>Interval</th>
+                <th>Health</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody :for={{id, target} <- @streams.targets} id={id}>
               <tr
                 class="cursor-pointer hover"
                 phx-click="toggle_expand"
@@ -188,11 +198,11 @@ defmodule TimelessUIWeb.ScrapeTargetLive do
                   <.target_details target={target} />
                 </td>
               </tr>
-            <% end %>
-          </tbody>
-        </table>
+            </tbody>
+          </table>
+        </div>
       </div>
-    </div>
+    </Layouts.app>
     """
   end
 
@@ -262,16 +272,18 @@ defmodule TimelessUIWeb.ScrapeTargetLive do
         <h2 class="card-title mb-4">
           {if @editing, do: "Edit Target", else: "Add Target"}
         </h2>
-        <form phx-submit="save_target" phx-change="form_changed">
+        <form id="scrape-target-form" phx-submit="save_target" phx-change="form_changed">
           <input :if={@editing} type="hidden" name="target_id" value={@editing} />
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div class="form-control">
               <label class="label"><span class="label-text">Job Name *</span></label>
               <input
+                id="scrape-target-job-name"
                 type="text"
                 name="job_name"
                 value={@form.job_name}
                 required
+                phx-debounce="300"
                 class="input input-bordered"
                 placeholder="e.g. node_exporter"
               />
@@ -279,10 +291,12 @@ defmodule TimelessUIWeb.ScrapeTargetLive do
             <div class="form-control">
               <label class="label"><span class="label-text">Address *</span></label>
               <input
+                id="scrape-target-address"
                 type="text"
                 name="address"
                 value={@form.address}
                 required
+                phx-debounce="300"
                 class="input input-bordered"
                 placeholder="e.g. localhost:9100"
               />
@@ -297,9 +311,11 @@ defmodule TimelessUIWeb.ScrapeTargetLive do
             <div class="form-control">
               <label class="label"><span class="label-text">Metrics Path</span></label>
               <input
+                id="scrape-target-metrics-path"
                 type="text"
                 name="metrics_path"
                 value={@form.metrics_path}
+                phx-debounce="300"
                 class="input input-bordered"
                 placeholder="/metrics"
               />
@@ -338,16 +354,20 @@ defmodule TimelessUIWeb.ScrapeTargetLive do
             <div class="space-y-2">
               <div :for={{row, index} <- Enum.with_index(@form.labels)} class="flex gap-2">
                 <input
+                  id={"scrape-target-label-key-#{index}"}
                   type="text"
                   name={"labels[#{index}][key]"}
                   value={row["key"]}
+                  phx-debounce="300"
                   class="input input-bordered input-sm flex-1"
                   placeholder="host"
                 />
                 <input
+                  id={"scrape-target-label-value-#{index}"}
                   type="text"
                   name={"labels[#{index}][value]"}
                   value={row["value"]}
+                  phx-debounce="300"
                   class="input input-bordered input-sm flex-1"
                   placeholder="my-server"
                 />
@@ -391,24 +411,29 @@ defmodule TimelessUIWeb.ScrapeTargetLive do
   end
 
   def handle_event("toggle_expand", %{"id" => id_str}, socket) do
-    id = String.to_integer(id_str)
-    new_id = if socket.assigns.expanded_id == id, do: nil, else: id
-    {:noreply, assign(socket, expanded_id: new_id)}
+    with {id, ""} <- Integer.parse(id_str) do
+      new_id = if socket.assigns.expanded_id == id, do: nil, else: id
+
+      {:noreply,
+       socket
+       |> assign(expanded_id: new_id)
+       |> load_targets(OperationsMonitor.snapshot(:scrape_targets))}
+    else
+      _ -> {:noreply, put_flash(socket, :error, "Could not load target")}
+    end
   end
 
   def handle_event("edit_target", %{"id" => id_str}, socket) do
-    id = String.to_integer(id_str)
-
-    case MetricsAPI.get_target(id) do
-      {:ok, target} ->
-        {:noreply,
-         assign(socket,
-           show_form: true,
-           editing: id,
-           form: target_to_form(target)
-         )}
-
-      {:error, _} ->
+    with {id, ""} <- Integer.parse(id_str),
+         {:ok, target} <- MetricsAPI.get_target(id) do
+      {:noreply,
+       assign(socket,
+         show_form: true,
+         editing: id,
+         form: target_to_form(target)
+       )}
+    else
+      _ ->
         {:noreply, put_flash(socket, :error, "Could not load target")}
     end
   end
@@ -450,24 +475,25 @@ defmodule TimelessUIWeb.ScrapeTargetLive do
   end
 
   def handle_event("delete_target", %{"id" => id_str}, socket) do
-    id = String.to_integer(id_str)
+    with {id, ""} <- Integer.parse(id_str) do
+      case MetricsAPI.delete_target(id) do
+        :ok ->
+          {:noreply,
+           socket
+           |> put_flash(:info, "Target deleted.")
+           |> load_targets(OperationsMonitor.refresh(:scrape_targets))}
 
-    case MetricsAPI.delete_target(id) do
-      :ok ->
-        {:noreply,
-         socket
-         |> put_flash(:info, "Target deleted.")
-         |> load_targets()}
-
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Delete failed: #{inspect(reason)}")}
+        {:error, reason} ->
+          {:noreply, put_flash(socket, :error, "Delete failed: #{inspect(reason)}")}
+      end
+    else
+      _ -> {:noreply, put_flash(socket, :error, "Delete failed: target not found")}
     end
   end
 
   @impl true
-  def handle_info(:refresh, socket) do
-    Process.send_after(self(), :refresh, @refresh_interval)
-    {:noreply, load_targets(socket)}
+  def handle_info({:operations_update, :scrape_targets, targets}, socket) do
+    {:noreply, load_targets(socket, targets)}
   end
 
   defp save_target(socket, api_params) do
@@ -484,14 +510,14 @@ defmodule TimelessUIWeb.ScrapeTargetLive do
          socket
          |> assign(show_form: false, editing: nil)
          |> put_flash(:info, "Target updated.")
-         |> load_targets()}
+         |> load_targets(OperationsMonitor.refresh(:scrape_targets))}
 
       {:ok, _id} ->
         {:noreply,
          socket
          |> assign(show_form: false, editing: nil)
          |> put_flash(:info, "Target created.")
-         |> load_targets()}
+         |> load_targets(OperationsMonitor.refresh(:scrape_targets))}
 
       {:error, reason} ->
         {:noreply, put_flash(socket, :error, "Error: #{inspect(reason)}")}

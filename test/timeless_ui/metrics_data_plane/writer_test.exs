@@ -66,6 +66,27 @@ defmodule TimelessUI.MetricsDataPlane.WriterTest do
     assert body =~ ~s("__name__":"cpu")
   end
 
+  test "chunks large imports into bounded requests" do
+    metrics =
+      for id <- 1..5 do
+        %{name: "cpu", host: "edge", type: :gauge, labels: %{id: id}, val: id, ts: seconds()}
+      end
+
+    assert :ok =
+             Writer.write_metrics(metrics,
+               client: TimelessUI.MetricsDataPlaneWriterClientFixture,
+               client_opts: [notify: self()],
+               batch_size: 2
+             )
+
+    assert_receive {:victoria_import, first}
+    assert_receive {:victoria_import, second}
+    assert_receive {:victoria_import, third}
+    assert length(String.split(first, "\n", trim: true)) == 2
+    assert length(String.split(second, "\n", trim: true)) == 2
+    assert length(String.split(third, "\n", trim: true)) == 1
+  end
+
   describe "timestamp units" do
     test "a millisecond timestamp is refused instead of ingested" do
       # This is the bug the guard exists for: milliseconds where seconds are

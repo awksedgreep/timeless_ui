@@ -78,6 +78,24 @@ defmodule TimelessUI.TelemetryDataPlane.ProcessTest do
     assert {:error, %{state: :corruption}} = DataPlaneProcess.await_ready(name)
   end
 
+  test "status serves preparation-time stats without repeating file IO", fixture do
+    name = :cached_status_data_plane_fixture
+
+    start_supervised!(
+      {DataPlaneProcess,
+       base_options(fixture, :metrics, name,
+         data_dir: Path.join(fixture.root, "cached-status"),
+         startup_opts: [stats_notify: self()]
+       )}
+    )
+
+    assert {:ok, _endpoint} = DataPlaneProcess.await_ready(name)
+    assert_receive :startup_stats_called
+    assert DataPlaneProcess.status(name).state == :valid_libsql
+    assert DataPlaneProcess.status(name).state == :valid_libsql
+    refute_receive :startup_stats_called
+  end
+
   test "an explicit container bind permits non-loopback listeners", fixture do
     name = :container_bind_fixture
 
@@ -90,8 +108,8 @@ defmodule TimelessUI.TelemetryDataPlane.ProcessTest do
 
     start_supervised!({DataPlaneProcess, opts})
     # The plane BINDS 0.0.0.0, but the endpoint handed to clients dials
-      # loopback — a bind address is not a destination (dial_endpoint/1).
-      assert {:ok, "http://127.0.0.1:" <> _} = DataPlaneProcess.await_ready(name)
+    # loopback — a bind address is not a destination (dial_endpoint/1).
+    assert {:ok, "http://127.0.0.1:" <> _} = DataPlaneProcess.await_ready(name)
   end
 
   test "abnormal child death restarts while normal shutdown drains and reaps", fixture do

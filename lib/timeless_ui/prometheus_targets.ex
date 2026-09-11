@@ -35,7 +35,6 @@ defmodule TimelessUI.PrometheusTargets do
         target ->
           {:ok, _deleted} = Repo.delete(target)
           bump_version!()
-          :ok
       end
     end)
   end
@@ -44,9 +43,9 @@ defmodule TimelessUI.PrometheusTargets do
     Repo.get!(TimelessUI.PrometheusTargetState, 1).version
   end
 
-  def payload do
+  def payload(known_version \\ nil) do
     %{
-      version: version(),
+      version: known_version || version(),
       targets: Enum.map(list(), &to_rust_target/1)
     }
   end
@@ -81,8 +80,9 @@ defmodule TimelessUI.PrometheusTargets do
   end
 
   defp bump_version! do
-    {1, _} = Repo.update_all(TimelessUI.PrometheusTargetState, inc: [version: 1])
-    version()
+    query = from state in TimelessUI.PrometheusTargetState, select: state.version
+    {1, [version]} = Repo.update_all(query, inc: [version: 1])
+    version
   end
 end
 

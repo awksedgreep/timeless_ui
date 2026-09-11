@@ -24,7 +24,9 @@ defmodule TimelessUI.LogsDataPlane.BufferTest do
 
     assert_receive {:logs_ingest, entries}
     assert length(entries) == 256
-    assert %{admitted: 257, completed: 256, count: 1, max_entries: 256} = Buffer.stats(buffer)
+    assert :ok = Buffer.flush(buffer)
+    assert_receive {:logs_ingest, [%{message: "event-257"}]}
+    assert %{admitted: 257, completed: 257, count: 0, max_entries: 256} = Buffer.stats(buffer)
   end
 
   test "a failed flush retains the complete batch and reports the failure" do
@@ -32,6 +34,28 @@ defmodule TimelessUI.LogsDataPlane.BufferTest do
     assert :ok = Buffer.log(buffer, entry(1))
     assert {:error, {:incomplete_logs_transport_flush, {:error, :closed}}} = Buffer.flush(buffer)
     assert %{admitted: 1, completed: 0, count: 1, failed_flushes: 1} = Buffer.stats(buffer)
+  end
+
+  test "Logger admission remains responsive while HTTP ingest is blocked" do
+    name = {:global, {:nonblocking_logs_buffer, System.unique_integer([:positive])}}
+
+    start_supervised!(
+      {Buffer,
+       name: name,
+       client: TimelessUI.BlockingLogsDataPlaneClientFixture,
+       client_opts: [notify: self()],
+       install_logger: false,
+       max_entries: 1,
+       flush_interval: 60_000}
+    )
+
+    assert :ok = Buffer.log(name, entry(1))
+    assert_receive {:blocking_logs_ingest, worker, [%{message: "event-1"}]}
+    assert :ok = Buffer.log(name, entry(2))
+    assert %{count: 1, flushing: true} = Buffer.stats(name)
+
+    send(worker, :release_logs_ingest)
+    assert :ok = Buffer.flush(name)
   end
 
   test "supervisor shutdown drains the admitted tail before the Rust owner stops" do
@@ -47,6 +71,7 @@ defmodule TimelessUI.LogsDataPlane.BufferTest do
     )
 
     assert :ok = Buffer.log(name, entry(1))
+    _ = Buffer.stats(name)
     assert :ok = stop_supervised(Buffer)
     assert_receive {:logs_ingest, [%{message: "event-1"}]}
   end

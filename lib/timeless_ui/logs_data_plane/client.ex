@@ -7,8 +7,11 @@ defmodule TimelessUI.LogsDataPlane.Client do
   """
 
   alias TimelessUI.LogsDataPlane.Process, as: DataPlaneProcess
+  alias TimelessUI.TelemetryDataPlane.Tail
 
   @default_timeout 30_000
+  @max_query_entries 10_000
+  @max_query_bytes 16 * 1_024 * 1_024
   @levels ~w(debug info notice warning error critical alert emergency)
   @level_atoms %{
     "debug" => :debug,
@@ -35,48 +38,41 @@ defmodule TimelessUI.LogsDataPlane.Client do
   def tail(query, subscriber, opts \\ [])
       when is_binary(query) and is_pid(subscriber) and is_list(opts) do
     with {:ok, endpoint, owner_header} <- resolve_connection(opts) do
-      parent = subscriber
+      Tail.start(subscriber, fn ->
+        Req.request(
+          method: :get,
+          url: endpoint <> "/select/logsql/tail",
+          params: %{query: query},
+          headers: request_headers(opts, owner_header),
+          receive_timeout: :infinity,
+          retry: false,
+          decode_body: false,
+          into: fn {:data, chunk}, {req, resp} ->
+            if resp.status == 200 do
+              case Tail.split_lines(Process.get(:tail_buffer, ""), chunk) do
+                {:ok, lines, rest} ->
+                  Process.put(:tail_buffer, rest)
 
-      {:ok, pid} =
-        Task.start(fn ->
-          Req.request(
-            method: :get,
-            url: endpoint <> "/select/logsql/tail",
-            params: %{query: query},
-            headers: request_headers(opts, owner_header),
-            receive_timeout: :infinity,
-            retry: false,
-            decode_body: false,
-            into: fn {:data, chunk}, {req, resp} ->
-              if resp.status == 200 do
-                buffer = Process.get(:tail_buffer, "") <> chunk
-                {lines, rest} = split_complete_lines(buffer)
-                Process.put(:tail_buffer, rest)
+                  Enum.each(lines, fn line ->
+                    case Jason.decode(line) do
+                      {:ok, row} when is_map(row) ->
+                        send(subscriber, {:timeless_logs, :entry, tail_entry(row)})
 
-                Enum.each(lines, fn line ->
-                  case Jason.decode(line) do
-                    {:ok, row} when is_map(row) ->
-                      send(parent, {:timeless_logs, :entry, tail_entry(row)})
+                      _ ->
+                        :ok
+                    end
+                  end)
 
-                    _ ->
-                      :ok
-                  end
-                end)
+                {:error, :line_too_large} ->
+                  Process.put(:tail_buffer, "")
               end
-
-              {:cont, {req, resp}}
             end
-          )
-        end)
 
-      {:ok, pid}
+            {:cont, {req, resp}}
+          end
+        )
+      end)
     end
-  end
-
-  defp split_complete_lines(buffer) do
-    parts = String.split(buffer, "\n")
-    {complete, [rest]} = Enum.split(parts, length(parts) - 1)
-    {Enum.reject(complete, &(&1 == "")), rest}
   end
 
   # Must match decode_entry/1's shape exactly, which is TimelessLogs.Entry's:
@@ -142,12 +138,24 @@ defmodule TimelessUI.LogsDataPlane.Client do
   end
 
   def query(filters, opts \\ []) when is_list(filters) do
+    max_body_bytes = Keyword.get(opts, :max_body_bytes, @max_query_bytes)
+
     with :ok <- validate_query_filters(filters),
-         limit when is_integer(limit) and limit > 0 <- Keyword.get(filters, :limit, 100),
-         request_limit = min(limit + 1, 100_000),
+         limit when is_integer(limit) and limit > 0 and limit <= @max_query_entries <-
+           Keyword.get(filters, :limit, 100),
+         true <-
+           (is_integer(max_body_bytes) and max_body_bytes > 0) ||
+             {:error, :invalid_max_body_bytes},
+         request_limit = limit + 1,
          params <- filters |> Keyword.put(:limit, request_limit) |> Map.new(),
          {:ok, 200, body} <-
-           raw_request(:get, "/select/logsql/query", Keyword.put(opts, :params, params)),
+           raw_request(
+             :get,
+             "/select/logsql/query",
+             opts
+             |> Keyword.put(:params, params)
+             |> Keyword.put(:max_body_bytes, max_body_bytes)
+           ),
          {:ok, entries} <- decode_entries(body) do
       has_more = length(entries) > limit
       entries = Enum.take(entries, limit)
@@ -163,7 +171,7 @@ defmodule TimelessUI.LogsDataPlane.Client do
     else
       {:ok, status, body} -> {:error, {:unexpected_response, status, excerpt(body)}}
       {:error, _reason} = error -> error
-      _ -> {:error, :invalid_query_limit}
+      _ -> {:error, {:invalid_query_limit, @max_query_entries}}
     end
   end
 
@@ -331,6 +339,8 @@ defmodule TimelessUI.LogsDataPlane.Client do
         decode_body: false
       ]
 
+      request_options = maybe_limit_response(request_options, opts)
+
       request_options =
         case Keyword.fetch(opts, :body) do
           {:ok, body} -> Keyword.put(request_options, :body, body)
@@ -340,11 +350,15 @@ defmodule TimelessUI.LogsDataPlane.Client do
       request = Keyword.get(opts, :request, &Req.request/1)
 
       case request.(request_options) do
-        {:ok, %{status: status, body: body}} when is_integer(status) and is_binary(body) ->
-          {:ok, status, body}
+        {:ok, %{status: status, body: body}} when is_integer(status) ->
+          case bounded_body(body, Keyword.get(opts, :max_body_bytes)) do
+            {:ok, body} when is_binary(body) -> {:ok, status, body}
+            {:error, _reason} = error -> error
+            {:ok, body} -> {:error, {:invalid_response_body, status, body}}
+          end
 
-        {:ok, %{status: status, body: body}} ->
-          {:error, {:invalid_response_body, status, body}}
+        {:ok, response} ->
+          {:error, {:invalid_response, response}}
 
         {:error, reason} ->
           {:error, {:transport, reason}}
@@ -355,6 +369,41 @@ defmodule TimelessUI.LogsDataPlane.Client do
   catch
     :exit, reason -> {:error, {:transport, reason}}
   end
+
+  defp maybe_limit_response(request_options, opts) do
+    case Keyword.get(opts, :max_body_bytes) do
+      maximum when is_integer(maximum) and maximum > 0 ->
+        Keyword.put(request_options, :into, fn {:data, chunk}, {request, response} ->
+          {size, chunks} =
+            case response.body do
+              {:bounded_body, size, chunks} -> {size, chunks}
+              _body -> {0, []}
+            end
+
+          size = size + byte_size(chunk)
+          response = %{response | body: {:bounded_body, size, [chunk | chunks]}}
+
+          if size > maximum,
+            do: {:halt, {request, response}},
+            else: {:cont, {request, response}}
+        end)
+
+      _other ->
+        request_options
+    end
+  end
+
+  defp bounded_body({:bounded_body, size, _chunks}, maximum) when size > maximum,
+    do: {:error, {:response_too_large, size}}
+
+  defp bounded_body({:bounded_body, _size, chunks}, _maximum),
+    do: {:ok, chunks |> Enum.reverse() |> IO.iodata_to_binary()}
+
+  defp bounded_body(body, maximum)
+       when is_binary(body) and is_integer(maximum) and byte_size(body) > maximum,
+       do: {:error, {:response_too_large, byte_size(body)}}
+
+  defp bounded_body(body, _maximum), do: {:ok, body}
 
   defp resolve_connection(opts) do
     case Keyword.fetch(opts, :base_url) do

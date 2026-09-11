@@ -1,8 +1,8 @@
 defmodule TimelessUI.Poller.Dispatcher do
   @moduledoc """
   Bounded-concurrency job dispatcher for poller collection jobs.
-  Uses a queue and Task.Supervisor.async_nolink for execution.
-  Applies random backoff (0-30s) before each job.
+  Jobs wait in a bounded, jittered queue before a supervised task is started,
+  so delayed work never consumes a concurrency slot.
   """
 
   use GenServer
@@ -19,18 +19,29 @@ defmodule TimelessUI.Poller.Dispatcher do
     SnmpCollector
   }
 
-  defstruct queue: :queue.new(),
-            running: 0,
+  defstruct queue: :gb_trees.empty(),
+            tasks: MapSet.new(),
             max_concurrency: 50,
-            total_dispatched: 0
+            max_queue: 2_000,
+            jitter_ms: 30_000,
+            sequence: 0,
+            dispatch_timer: nil,
+            total_dispatched: 0,
+            total_dropped: 0
 
   def start_link(opts) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
   def enqueue(job) do
-    GenServer.cast(__MODULE__, {:enqueue, job})
+    case enqueue_many([job]) do
+      %{accepted: 1} -> :ok
+      %{accepted: 0} -> {:error, :overload}
+    end
   end
+
+  def enqueue_many(jobs) when is_list(jobs),
+    do: GenServer.call(__MODULE__, {:enqueue_many, jobs})
 
   def stats do
     GenServer.call(__MODULE__, :stats)
@@ -38,73 +49,123 @@ defmodule TimelessUI.Poller.Dispatcher do
 
   @impl true
   def init(opts) do
-    max_concurrency = Keyword.get(opts, :max_concurrency, 50)
-
     state = %__MODULE__{
-      max_concurrency: max_concurrency
+      max_concurrency: Keyword.get(opts, :max_concurrency, 50),
+      max_queue: Keyword.get(opts, :max_queue, 2_000),
+      jitter_ms: Keyword.get(opts, :jitter_ms, 30_000)
     }
 
     {:ok, state}
   end
 
   @impl true
-  def handle_cast({:enqueue, job}, state) do
-    state = %{state | queue: :queue.in(job, state.queue)}
-    {:noreply, dispatch_pending(state)}
-  end
+  def handle_call({:enqueue_many, jobs}, _from, state) do
+    available = max(state.max_queue - :gb_trees.size(state.queue), 0)
+    {accepted, dropped} = Enum.split(jobs, available)
+    now = System.monotonic_time(:millisecond)
 
-  @impl true
-  def handle_info({ref, _result}, state) when is_reference(ref) do
-    Process.demonitor(ref, [:flush])
-    state = %{state | running: state.running - 1}
-    {:noreply, dispatch_pending(state)}
-  end
+    state =
+      Enum.reduce(accepted, state, fn job, state ->
+        sequence = state.sequence + 1
+        ready_at = now + jitter(state.jitter_ms)
+        queue = :gb_trees.insert({ready_at, sequence}, job, state.queue)
+        %{state | queue: queue, sequence: sequence}
+      end)
 
-  def handle_info({:DOWN, _ref, :process, _pid, reason}, state) do
-    state = %{state | running: state.running - 1}
+    dropped_count = length(dropped)
 
-    if reason != :normal do
-      Logger.warning("Poller job crashed: #{inspect(reason)}")
-      :telemetry.execute([:poller, :job, :crash], %{count: 1}, %{reason: reason})
+    if dropped_count > 0 do
+      :telemetry.execute(
+        [:poller, :dispatcher, :overload],
+        %{dropped: dropped_count, queued: :gb_trees.size(state.queue)},
+        %{status: :overload}
+      )
     end
 
-    {:noreply, dispatch_pending(state)}
+    state = %{state | total_dropped: state.total_dropped + dropped_count}
+    reply = %{accepted: length(accepted), dropped: dropped_count}
+    {:reply, reply, dispatch_pending(state)}
   end
 
-  @impl true
   def handle_call(:stats, _from, state) do
     stats = %{
-      running: state.running,
-      queued: :queue.len(state.queue),
+      running: MapSet.size(state.tasks),
+      queued: :gb_trees.size(state.queue),
       max_concurrency: state.max_concurrency,
-      total_dispatched: state.total_dispatched
+      max_queue: state.max_queue,
+      total_dispatched: state.total_dispatched,
+      total_dropped: state.total_dropped
     }
 
     {:reply, stats, state}
   end
 
-  defp dispatch_pending(state) do
-    if state.running < state.max_concurrency and not :queue.is_empty(state.queue) do
-      {{:value, job}, queue} = :queue.out(state.queue)
+  @impl true
+  def handle_info({ref, _result}, state) when is_reference(ref), do: {:noreply, state}
 
-      state = %{
-        state
-        | queue: queue,
-          running: state.running + 1,
-          total_dispatched: state.total_dispatched + 1
-      }
+  def handle_info({:DOWN, ref, :process, _pid, reason}, state) do
+    if MapSet.member?(state.tasks, ref) do
+      state = %{state | tasks: MapSet.delete(state.tasks, ref)}
 
-      Task.Supervisor.async_nolink(TimelessUI.Poller.TaskSupervisor, fn ->
-        backoff = :rand.uniform(30_000)
-        Process.sleep(backoff)
-        execute_job(job)
-      end)
+      if reason != :normal do
+        Logger.warning("Poller job crashed: #{inspect(reason)}")
+        :telemetry.execute([:poller, :job, :crash], %{count: 1}, %{status: :crashed})
+      end
 
-      dispatch_pending(state)
+      {:noreply, dispatch_pending(state)}
     else
-      state
+      {:noreply, state}
     end
   end
+
+  def handle_info(:dispatch, state),
+    do: {:noreply, dispatch_pending(%{state | dispatch_timer: nil})}
+
+  defp dispatch_pending(state) do
+    state = cancel_dispatch_timer(state)
+
+    cond do
+      MapSet.size(state.tasks) >= state.max_concurrency ->
+        state
+
+      :gb_trees.is_empty(state.queue) ->
+        state
+
+      true ->
+        {key = {ready_at, _sequence}, job, queue} = :gb_trees.take_smallest(state.queue)
+        now = System.monotonic_time(:millisecond)
+
+        if ready_at <= now do
+          task =
+            Task.Supervisor.async_nolink(TimelessUI.Poller.TaskSupervisor, fn ->
+              execute_job(job)
+            end)
+
+          state = %{
+            state
+            | queue: queue,
+              tasks: MapSet.put(state.tasks, task.ref),
+              total_dispatched: state.total_dispatched + 1
+          }
+
+          dispatch_pending(state)
+        else
+          queue = :gb_trees.insert(key, job, queue)
+          timer = Process.send_after(self(), :dispatch, ready_at - now)
+          %{state | queue: queue, dispatch_timer: timer}
+        end
+    end
+  end
+
+  defp cancel_dispatch_timer(%{dispatch_timer: nil} = state), do: state
+
+  defp cancel_dispatch_timer(state) do
+    Process.cancel_timer(state.dispatch_timer)
+    %{state | dispatch_timer: nil}
+  end
+
+  defp jitter(0), do: 0
+  defp jitter(maximum), do: :rand.uniform(maximum + 1) - 1
 
   defp execute_job(%{host: host, request: request}) do
     if request.type == "prometheus" and rust_prometheus_owner?() do
@@ -113,10 +174,8 @@ defmodule TimelessUI.Poller.Dispatcher do
       )
 
       :telemetry.execute([:poller, :job, :skipped], %{count: 1}, %{
-        host: host.name,
-        request: request.name,
         type: request.type,
-        reason: :rust_owner
+        status: :rust_owner
       })
 
       :ok
@@ -127,9 +186,8 @@ defmodule TimelessUI.Poller.Dispatcher do
 
   defp execute_job_owned(%{host: host, request: request}) do
     :telemetry.execute([:poller, :job, :start], %{count: 1}, %{
-      host: host.name,
-      request: request.name,
-      type: request.type
+      type: request.type,
+      status: :started
     })
 
     collector = collector_for_type(request.type)
@@ -161,9 +219,8 @@ defmodule TimelessUI.Poller.Dispatcher do
         case MetricsWriter.write_metrics(metrics) do
           :ok ->
             :telemetry.execute([:poller, :job, :complete], %{metrics_count: length(metrics)}, %{
-              host: host.name,
-              request: request.name,
-              type: request.type
+              type: request.type,
+              status: :complete
             })
 
           {:error, reason} ->
@@ -172,10 +229,8 @@ defmodule TimelessUI.Poller.Dispatcher do
             )
 
             :telemetry.execute([:poller, :job, :error], %{count: 1}, %{
-              host: host.name,
-              request: request.name,
               type: request.type,
-              reason: reason
+              status: :write_error
             })
         end
 
@@ -183,10 +238,8 @@ defmodule TimelessUI.Poller.Dispatcher do
         Logger.debug("Poller job failed: #{host.name}/#{request.name}: #{inspect(reason)}")
 
         :telemetry.execute([:poller, :job, :error], %{count: 1}, %{
-          host: host.name,
-          request: request.name,
           type: request.type,
-          reason: reason
+          status: :collection_error
         })
     end
   end

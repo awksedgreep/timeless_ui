@@ -3,89 +3,64 @@ defmodule TimelessUIWeb.PollerLive.Dashboard do
 
   import TimelessUIWeb.PollerNav
 
-  alias TimelessUI.Poller.{Scheduler, Dispatcher}
-
-  @refresh_interval :timer.seconds(5)
+  alias TimelessUI.OperationsMonitor
 
   @impl true
   def mount(_params, _session, socket) do
-    if connected?(socket), do: Process.send_after(self(), :refresh, @refresh_interval)
+    stats =
+      if connected?(socket),
+        do: OperationsMonitor.subscribe(:poller_stats),
+        else: OperationsMonitor.snapshot(:poller_stats)
 
     {:ok,
-     socket
-     |> assign(page_title: "Poller Dashboard")
-     |> load_stats()}
-  end
-
-  defp load_stats(socket) do
-    scheduler_stats =
-      safe_call(fn -> Scheduler.stats() end, %{
-        schedules_total: 0,
-        last_tick: nil,
-        jobs_enqueued: 0
-      })
-
-    dispatcher_stats =
-      safe_call(fn -> Dispatcher.stats() end, %{
-        running: 0,
-        queued: 0,
-        max_concurrency: 0,
-        total_dispatched: 0
-      })
-
-    assign(socket,
-      scheduler: scheduler_stats,
-      dispatcher: dispatcher_stats
-    )
-  end
-
-  defp safe_call(fun, default) do
-    try do
-      fun.()
-    catch
-      :exit, _ -> default
-    end
+     assign(socket,
+       page_title: "Poller Dashboard",
+       scheduler: stats.scheduler,
+       dispatcher: stats.dispatcher
+     )}
   end
 
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="max-w-4xl mx-auto p-8">
-      <.poller_nav current={:dashboard} />
+    <Layouts.app flash={@flash} current_scope={@current_scope}>
+      <div id="poller-dashboard-page" class="max-w-4xl mx-auto p-8">
+        <.poller_nav current={:dashboard} />
 
-      <div class="flex items-center justify-between mb-8">
-        <h1 class="text-2xl font-bold">Poller Dashboard</h1>
-      </div>
+        <div class="flex items-center justify-between mb-8">
+          <h1 class="text-2xl font-bold">Poller Dashboard</h1>
+        </div>
 
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div class="card bg-base-200">
-          <div class="card-body">
-            <h2 class="card-title">Scheduler</h2>
-            <div class="grid grid-cols-2 gap-4 mt-4">
-              <.stat_item label="Schedules" value={@scheduler.schedules_total} />
-              <.stat_item label="Jobs Enqueued" value={@scheduler.jobs_enqueued} />
-              <.stat_item
-                label="Last Tick"
-                value={format_tick(@scheduler.last_tick)}
-                class="col-span-2"
-              />
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div class="card bg-base-200">
+            <div class="card-body">
+              <h2 class="card-title">Scheduler</h2>
+              <div class="grid grid-cols-2 gap-4 mt-4">
+                <.stat_item label="Schedules" value={@scheduler.schedules_total} />
+                <.stat_item label="Jobs Enqueued" value={@scheduler.jobs_enqueued} />
+                <.stat_item
+                  label="Last Tick"
+                  value={format_tick(@scheduler.last_tick)}
+                  class="col-span-2"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div class="card bg-base-200">
+            <div class="card-body">
+              <h2 class="card-title">Dispatcher</h2>
+              <div class="grid grid-cols-2 gap-4 mt-4">
+                <.stat_item label="Running" value={@dispatcher.running} />
+                <.stat_item label="Queued" value={@dispatcher.queued} />
+                <.stat_item label="Max Concurrency" value={@dispatcher.max_concurrency} />
+                <.stat_item label="Total Dispatched" value={@dispatcher.total_dispatched} />
+              </div>
             </div>
           </div>
         </div>
-
-        <div class="card bg-base-200">
-          <div class="card-body">
-            <h2 class="card-title">Dispatcher</h2>
-            <div class="grid grid-cols-2 gap-4 mt-4">
-              <.stat_item label="Running" value={@dispatcher.running} />
-              <.stat_item label="Queued" value={@dispatcher.queued} />
-              <.stat_item label="Max Concurrency" value={@dispatcher.max_concurrency} />
-              <.stat_item label="Total Dispatched" value={@dispatcher.total_dispatched} />
-            </div>
-          </div>
-        </div>
       </div>
-    </div>
+    </Layouts.app>
     """
   end
 
@@ -107,8 +82,10 @@ defmodule TimelessUIWeb.PollerLive.Dashboard do
   end
 
   @impl true
-  def handle_info(:refresh, socket) do
-    Process.send_after(self(), :refresh, @refresh_interval)
-    {:noreply, load_stats(socket)}
+  def handle_info({:operations_update, :poller_stats, stats}, socket) do
+    if socket.assigns.scheduler == stats.scheduler and
+         socket.assigns.dispatcher == stats.dispatcher,
+       do: {:noreply, socket},
+       else: {:noreply, assign(socket, scheduler: stats.scheduler, dispatcher: stats.dispatcher)}
   end
 end

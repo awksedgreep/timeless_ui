@@ -161,23 +161,40 @@ defmodule TimelessUI.Poller.Collectors.SnmpCollector do
         "Walking #{length(required)} foreign table(s) for #{table.name}: #{inspect(required)}"
       )
 
-      Map.new(required, fn table_name ->
-        case TableLoader.get_table(table_name) do
-          nil ->
-            Logger.warning("Foreign table '#{table_name}' not found")
-            {table_name, %{}}
+      required
+      |> Task.async_stream(
+        fn table_name ->
+          case TableLoader.get_table(table_name) do
+            nil ->
+              Logger.warning("Foreign table '#{table_name}' not found")
+              {table_name, %{}}
 
-          foreign_table ->
-            case execute_table_walk(host, foreign_table, base_opts, max_rep) do
-              {:ok, varbinds} ->
-                {table_name, parse_varbinds_to_indexed_data(foreign_table, varbinds)}
+            foreign_table ->
+              case execute_table_walk(host, foreign_table, base_opts, max_rep) do
+                {:ok, varbinds} ->
+                  {table_name, parse_varbinds_to_indexed_data(foreign_table, varbinds)}
 
-              {:error, reason} ->
-                Logger.warning("Failed to walk foreign table '#{table_name}': #{inspect(reason)}")
-                {table_name, %{}}
-            end
-        end
+                {:error, reason} ->
+                  Logger.warning(
+                    "Failed to walk foreign table '#{table_name}': #{inspect(reason)}"
+                  )
+
+                  {table_name, %{}}
+              end
+          end
+        end,
+        max_concurrency: min(length(required), 4),
+        timeout: :infinity
+      )
+      |> Enum.flat_map(fn
+        {:ok, result} ->
+          [result]
+
+        {:exit, reason} ->
+          Logger.warning("Foreign table walk task failed: #{inspect(reason)}")
+          []
       end)
+      |> Map.new()
     end
   end
 
@@ -194,7 +211,7 @@ defmodule TimelessUI.Poller.Collectors.SnmpCollector do
               acc
 
             column ->
-              index_key = TableLoader.build_index_key(indices)
+              index_key = TableLoader.build_index_key(indices, table.index_names)
               value = extract_table_value(vb, column)
 
               acc
@@ -214,15 +231,17 @@ defmodule TimelessUI.Poller.Collectors.SnmpCollector do
     indexed_data = parse_varbinds_to_indexed_data(table, varbinds)
 
     # Step 2: For each row, emit one metric per metric-column with labels
+    metric_columns = TableLoader.get_metric_columns(table)
+    label_columns = TableLoader.get_label_columns(table)
+
     Enum.flat_map(indexed_data, fn {_index_key, row_data} ->
       # Resolve foreign key labels
       fk_labels = TableLoader.enrich_with_foreign_keys(row_data, table, foreign_table_data)
 
       # Build base labels with FK enrichment merged in
-      base_labels = build_base_labels(host_name, table, row_data, fk_labels)
+      base_labels = build_base_labels(host_name, label_columns, row_data, fk_labels)
 
-      table
-      |> TableLoader.get_metric_columns()
+      metric_columns
       |> Enum.filter(fn col -> Map.has_key?(row_data, col.name) end)
       |> Enum.map(fn col ->
         %{
@@ -248,7 +267,7 @@ defmodule TimelessUI.Poller.Collectors.SnmpCollector do
     end
   end
 
-  defp build_base_labels(host_name, table, row_data, fk_labels) do
+  defp build_base_labels(host_name, label_columns, row_data, fk_labels) do
     # Start with index values
     indices = Map.get(row_data, :_indices, %{})
 
@@ -257,9 +276,7 @@ defmodule TimelessUI.Poller.Collectors.SnmpCollector do
 
     # Add label columns
     label_data =
-      table
-      |> TableLoader.get_label_columns()
-      |> Enum.reduce(%{}, fn col, acc ->
+      Enum.reduce(label_columns, %{}, fn col, acc ->
         case Map.get(row_data, col.name) do
           nil -> acc
           value -> Map.put(acc, col.name, to_string(value))
@@ -319,17 +336,21 @@ defmodule TimelessUI.Poller.Collectors.SnmpCollector do
       ]
 
     task =
-      Task.async(fn ->
+      Task.Supervisor.async_nolink(TimelessUI.TaskSupervisor, fn ->
         execute_snmp_operation(type, target, oids, base_opts, max_rep)
       end)
 
     results =
-      try do
-        Task.await(task, timeout + 1000)
-      catch
-        :exit, {:timeout, _} ->
+      case Task.yield(task, timeout + 1_000) || Task.shutdown(task, :brutal_kill) do
+        {:ok, result} ->
+          result
+
+        {:exit, reason} ->
+          Logger.debug("SNMP task failed for host=#{host.name}: #{inspect(reason)}")
+          []
+
+        nil ->
           Logger.debug("SNMP timeout after #{timeout}ms for host=#{host.name}")
-          Task.shutdown(task, :brutal_kill)
           []
       end
 

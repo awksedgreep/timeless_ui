@@ -74,6 +74,9 @@ config :timeless_ui, TimelessUI.Mailer, adapter: Swoosh.Adapters.Local
 config :timeless_ui, :poller,
   enabled: false,
   max_concurrency: 50,
+  max_queue: 2_000,
+  max_jobs_per_tick: 2_000,
+  jitter_ms: 30_000,
   icmp_timeout_ms: 1_000,
   icmp_count: 1,
   metrics_store: :timeless_metrics

@@ -6,6 +6,8 @@ defmodule TimelessUI.Poller.Snmp.TableLoader do
   helpers for OID parsing, column classification, and index key building.
   """
 
+  use GenServer
+
   import Ecto.Query
 
   alias TimelessUI.Repo
@@ -13,6 +15,15 @@ defmodule TimelessUI.Poller.Snmp.TableLoader do
 
   @metric_types ~w(counter32 counter64 gauge gauge32 integer time_ticks)
   @label_types ~w(string octet_string ip_address object_identifier opaque)
+  @cache __MODULE__
+
+  def start_link(_opts), do: GenServer.start_link(__MODULE__, [], name: __MODULE__)
+
+  @impl true
+  def init(_opts) do
+    :ets.new(@cache, [:named_table, :set, :public, read_concurrency: true])
+    {:ok, %{}}
+  end
 
   @doc """
   Get table definition by name.
@@ -21,10 +32,34 @@ defmodule TimelessUI.Poller.Snmp.TableLoader do
   (keyed by column_id), or `nil` if not found.
   """
   def get_table(table_name) do
-    case Repo.one(from t in Table, where: t.name == ^table_name, preload: [:columns]) do
-      nil -> nil
-      table -> to_table_def(table)
+    case cached(table_name) do
+      {:ok, table} ->
+        table
+
+      :miss ->
+        case Repo.one(from t in Table, where: t.name == ^table_name, preload: [:columns]) do
+          nil ->
+            cache(table_name, nil)
+            nil
+
+          table ->
+            definition = to_table_def(table)
+            cache(table_name, definition)
+            definition
+        end
     end
+  end
+
+  @doc "Invalidate one cached table definition after a control-plane write."
+  def invalidate(table_name) when is_binary(table_name) do
+    if cache_available?(), do: :ets.delete(@cache, table_name)
+    :ok
+  end
+
+  @doc "Invalidate all cached definitions after a table or column write."
+  def invalidate_all do
+    if cache_available?(), do: :ets.delete_all_objects(@cache)
+    :ok
   end
 
   @doc """
@@ -83,13 +118,24 @@ defmodule TimelessUI.Poller.Snmp.TableLoader do
       iex> TableLoader.build_index_key(%{"ifIndex" => 1})
       "1"
 
-      iex> TableLoader.build_index_key(%{"ifIndex" => 1, "cmIndex" => 2})
+      iex> TableLoader.build_index_key(%{"ifIndex" => 1, "cmIndex" => 2}, ["ifIndex", "cmIndex"])
       "1.2"
   """
-  def build_index_key(indices) when is_map(indices) do
-    indices
-    |> Map.values()
+  def build_index_key(indices, index_names \\ nil) when is_map(indices) do
+    index_names =
+      if index_names in [nil, []], do: indices |> Map.keys() |> Enum.sort(), else: index_names
+
+    index_names
+    |> Enum.map(&Map.fetch!(indices, &1))
     |> Enum.join(".")
+  end
+
+  defp index_names(index_pattern) do
+    index_pattern
+    |> String.split("{")
+    |> Enum.drop(1)
+    |> Enum.map(fn fragment -> fragment |> String.split("}", parts: 2) |> hd() end)
+    |> Enum.reject(&(&1 == "column"))
   end
 
   @doc """
@@ -157,6 +203,28 @@ defmodule TimelessUI.Poller.Snmp.TableLoader do
 
   # Private helpers
 
+  defp cached(table_name) do
+    if cache_enabled?() and cache_available?() do
+      case :ets.lookup(@cache, table_name) do
+        [{^table_name, table}] -> {:ok, table}
+        [] -> :miss
+      end
+    else
+      :miss
+    end
+  end
+
+  defp cache(table_name, table) do
+    if cache_enabled?() and cache_available?(), do: :ets.insert(@cache, {table_name, table})
+  end
+
+  defp cache_enabled? do
+    Application.get_env(:timeless_ui, :snmp_table_cache, enabled: true)
+    |> Keyword.get(:enabled, true)
+  end
+
+  defp cache_available?, do: :ets.whereis(@cache) != :undefined
+
   defp to_table_def(%Table{} = table) do
     columns =
       table.columns
@@ -167,6 +235,7 @@ defmodule TimelessUI.Poller.Snmp.TableLoader do
       name: table.name,
       base_oid: table.base_oid,
       index_pattern: table.index_pattern,
+      index_names: index_names(table.index_pattern),
       columns: columns
     }
   end

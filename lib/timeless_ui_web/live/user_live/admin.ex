@@ -29,9 +29,16 @@ defmodule TimelessUIWeb.UserLive.Admin do
                 type="text"
                 label="Username"
                 required
+                phx-debounce="300"
                 phx-mounted={JS.focus()}
               />
-              <.input field={@form[:password]} type="password" label="Password" required />
+              <.input
+                field={@form[:password]}
+                type="password"
+                label="Password"
+                required
+                phx-debounce="300"
+              />
               <.input
                 field={@form[:role]}
                 type="select"
@@ -53,8 +60,8 @@ defmodule TimelessUIWeb.UserLive.Admin do
                 <th></th>
               </tr>
             </thead>
-            <tbody>
-              <tr :for={user <- @users} id={"user-#{user.id}"}>
+            <tbody id="admin-users" phx-update="stream">
+              <tr :for={{id, user} <- @streams.users} id={id}>
                 <td>{user.username}</td>
                 <td>
                   <span class={["badge", user.role == "admin" && "badge-primary"]}>{user.role}</span>
@@ -63,6 +70,7 @@ defmodule TimelessUIWeb.UserLive.Admin do
                 <td class="flex gap-2">
                   <button
                     phx-click="show_reset"
+                    id={"reset-user-#{user.id}"}
                     phx-value-id={user.id}
                     class="btn btn-warning btn-xs"
                   >
@@ -71,6 +79,7 @@ defmodule TimelessUIWeb.UserLive.Admin do
                   <button
                     :if={user.id != @current_scope.user.id}
                     phx-click="delete"
+                    id={"delete-user-#{user.id}"}
                     phx-value-id={user.id}
                     data-confirm={"Delete #{user.username}?"}
                     class="btn btn-error btn-xs"
@@ -104,12 +113,13 @@ defmodule TimelessUIWeb.UserLive.Admin do
   @impl true
   def mount(_params, _session, socket) do
     changeset = Ecto.Changeset.change(%User{}, %{role: "viewer"})
+    users = Accounts.list_users()
 
     {:ok,
      socket
-     |> assign(:users, Accounts.list_users())
      |> assign(:reset_user, nil)
-     |> assign_form(changeset)}
+     |> assign_form(changeset)
+     |> stream(:users, users)}
   end
 
   @impl true
@@ -119,7 +129,7 @@ defmodule TimelessUIWeb.UserLive.Admin do
         {:noreply,
          socket
          |> put_flash(:info, "User #{user.username} created.")
-         |> assign(:users, Accounts.list_users())
+         |> stream_insert(:users, user)
          |> assign_form(Ecto.Changeset.change(%User{}, %{role: "viewer"}))}
 
       {:error, changeset} ->
@@ -137,8 +147,12 @@ defmodule TimelessUIWeb.UserLive.Admin do
   end
 
   def handle_event("show_reset", %{"id" => id}, socket) do
-    user = Accounts.get_user!(id)
-    {:noreply, assign(socket, :reset_user, user)}
+    with {id, ""} <- Integer.parse(id),
+         {:ok, user} <- Accounts.get_user(id) do
+      {:noreply, assign(socket, :reset_user, user)}
+    else
+      _ -> {:noreply, put_flash(socket, :error, "User no longer exists.")}
+    end
   end
 
   def handle_event("cancel_reset", _params, socket) do
@@ -150,28 +164,35 @@ defmodule TimelessUIWeb.UserLive.Admin do
         %{"reset" => %{"user_id" => id, "password" => password}},
         socket
       ) do
-    user = Accounts.get_user!(id)
+    with {id, ""} <- Integer.parse(id),
+         {:ok, user} <- Accounts.get_user(id) do
+      case Accounts.reset_user_password(user, password) do
+        {:ok, _user} ->
+          {:noreply,
+           socket
+           |> put_flash(:info, "Password reset for #{user.username}.")
+           |> assign(:reset_user, nil)}
 
-    case Accounts.reset_user_password(user, password) do
-      {:ok, _user} ->
-        {:noreply,
-         socket
-         |> put_flash(:info, "Password reset for #{user.username}.")
-         |> assign(:reset_user, nil)}
-
-      {:error, _changeset} ->
-        {:noreply, put_flash(socket, :error, "Failed to reset password.")}
+        {:error, _changeset} ->
+          {:noreply, put_flash(socket, :error, "Failed to reset password.")}
+      end
+    else
+      _ -> {:noreply, put_flash(socket, :error, "User no longer exists.")}
     end
   end
 
   def handle_event("delete", %{"id" => id}, socket) do
-    user = Accounts.get_user!(id)
-    {:ok, _} = Accounts.delete_user(user)
-
-    {:noreply,
-     socket
-     |> put_flash(:info, "User #{user.username} deleted.")
-     |> assign(:users, Accounts.list_users())}
+    with {id, ""} <- Integer.parse(id),
+         false <- id == socket.assigns.current_scope.user.id,
+         {:ok, user} <- Accounts.get_user(id),
+         {:ok, deleted} <- Accounts.delete_user(user) do
+      {:noreply,
+       socket
+       |> put_flash(:info, "User #{user.username} deleted.")
+       |> stream_delete(:users, deleted)}
+    else
+      _ -> {:noreply, put_flash(socket, :error, "User no longer exists.")}
+    end
   end
 
   defp assign_form(socket, changeset) do

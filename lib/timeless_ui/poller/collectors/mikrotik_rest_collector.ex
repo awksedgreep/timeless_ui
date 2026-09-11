@@ -68,8 +68,21 @@ defmodule TimelessUI.Poller.Collectors.MikrotikRestCollector do
 
     metrics =
       endpoints
-      |> Enum.flat_map(fn endpoint ->
-        collect_endpoint(base_url, endpoint, username, password, timeout, host.name, ts)
+      |> Task.async_stream(
+        fn endpoint ->
+          collect_endpoint(base_url, endpoint, username, password, timeout, host.name, ts)
+        end,
+        max_concurrency:
+          max(1, min(length(endpoints), Keyword.get(opts, :mikrotik_max_concurrency, 4))),
+        timeout: :infinity
+      )
+      |> Enum.flat_map(fn
+        {:ok, endpoint_metrics} ->
+          endpoint_metrics
+
+        {:exit, reason} ->
+          Logger.debug("MikroTik endpoint task failed: #{inspect(reason)}")
+          []
       end)
 
     {:ok, metrics}
@@ -183,40 +196,18 @@ defmodule TimelessUI.Poller.Collectors.MikrotikRestCollector do
   defp bool_val(false), do: 0.0
 
   defp parse_numeric_string(str) do
-    cond do
-      Regex.match?(~r/^\d+$/, str) ->
-        {:ok, String.to_integer(str) * 1.0}
+    case Float.parse(str) do
+      {number, ""} ->
+        {:ok, number}
 
-      Regex.match?(~r/^\d+\.\d+$/, str) ->
-        {:ok, String.to_float(str)}
-
-      true ->
-        case Regex.run(~r/^([\d.]+)([A-Za-z]+)$/, str) do
-          [_, num_str, unit] ->
-            with {:ok, num} <- parse_number(num_str),
-                 {:ok, multiplier} <- unit_multiplier(unit) do
-              {:ok, num * multiplier}
-            else
-              _ -> :error
-            end
-
-          _ ->
-            :error
+      {number, unit} ->
+        case unit_multiplier(unit) do
+          {:ok, multiplier} -> {:ok, number * multiplier}
+          :error -> :error
         end
-    end
-  end
 
-  defp parse_number(str) do
-    if String.contains?(str, ".") do
-      case Float.parse(str) do
-        {f, _} -> {:ok, f}
-        :error -> :error
-      end
-    else
-      case Integer.parse(str) do
-        {i, _} -> {:ok, i * 1.0}
-        :error -> :error
-      end
+      :error ->
+        :error
     end
   end
 

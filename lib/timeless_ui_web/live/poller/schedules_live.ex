@@ -4,56 +4,59 @@ defmodule TimelessUIWeb.PollerLive.Schedules do
   import TimelessUIWeb.PollerNav
 
   alias TimelessUI.Poller.{Schedules, Schedule}
-  alias Ecto.Changeset
 
   @impl true
   def mount(_params, _session, socket) do
+    schedules = Schedules.list_schedules()
+
     {:ok,
      socket
      |> assign(
        page_title: "Poller Schedules",
-       schedules: Schedules.list_schedules(),
+       schedules_empty?: schedules == [],
+       schedules_count: length(schedules),
        show_form: false,
        editing: nil,
-       changeset: Schedules.change_schedule(%Schedule{})
-     )}
+       form: to_form(Schedules.change_schedule(%Schedule{}))
+     )
+     |> stream(:schedules, schedules)}
   end
 
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="max-w-4xl mx-auto p-8">
-      <.poller_nav current={:schedules} />
+    <Layouts.app flash={@flash} current_scope={@current_scope}>
+      <div id="poller-schedules-page" class="max-w-4xl mx-auto p-8">
+        <.poller_nav current={:schedules} />
 
-      <div class="flex items-center justify-between mb-8">
-        <h1 class="text-2xl font-bold">Poller Schedules</h1>
-        <button :if={!@show_form} phx-click="show_add_form" class="btn btn-primary">
-          Add Schedule
-        </button>
-      </div>
+        <div class="flex items-center justify-between mb-8">
+          <h1 class="text-2xl font-bold">Poller Schedules</h1>
+          <button :if={!@show_form} phx-click="show_add_form" class="btn btn-primary">
+            Add Schedule
+          </button>
+        </div>
 
-      <.schedule_form :if={@show_form} changeset={@changeset} editing={@editing} />
+        <.schedule_form :if={@show_form} form={@form} editing={@editing} />
 
-      <div :if={@schedules == []} class="text-center text-base-content/60 py-16">
-        <p class="text-lg mb-4">No schedules configured</p>
-        <p>Click "Add Schedule" to define when polling jobs run.</p>
-      </div>
+        <div :if={@schedules_empty?} class="text-center text-base-content/60 py-16">
+          <p class="text-lg mb-4">No schedules configured</p>
+          <p>Click "Add Schedule" to define when polling jobs run.</p>
+        </div>
 
-      <div :if={@schedules != []} class="overflow-x-auto">
-        <table class="table table-zebra">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Cron</th>
-              <th>Host Tags</th>
-              <th>Request Tags</th>
-              <th>Enabled</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            <%= for schedule <- @schedules do %>
+        <div class={["overflow-x-auto", @schedules_empty? && "hidden"]}>
+          <table class="table table-zebra">
+            <thead>
               <tr>
+                <th>Name</th>
+                <th>Cron</th>
+                <th>Host Tags</th>
+                <th>Request Tags</th>
+                <th>Enabled</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="poller-schedules" phx-update="stream">
+              <tr :for={{id, schedule} <- @streams.schedules} id={id}>
                 <td class="font-medium">{schedule.name}</td>
                 <td class="font-mono text-sm">{schedule.cron}</td>
                 <td class="text-sm">{display_tags(schedule.host_tags)}</td>
@@ -61,6 +64,7 @@ defmodule TimelessUIWeb.PollerLive.Schedules do
                 <td>
                   <button
                     phx-click="toggle_enabled"
+                    id={"toggle-schedule-#{schedule.id}"}
                     phx-value-id={schedule.id}
                     class={[
                       "btn btn-xs",
@@ -74,6 +78,7 @@ defmodule TimelessUIWeb.PollerLive.Schedules do
                   <div class="flex gap-1">
                     <button
                       phx-click="edit_schedule"
+                      id={"edit-schedule-#{schedule.id}"}
                       phx-value-id={schedule.id}
                       class="btn btn-xs btn-ghost"
                     >
@@ -81,6 +86,7 @@ defmodule TimelessUIWeb.PollerLive.Schedules do
                     </button>
                     <button
                       phx-click="delete_schedule"
+                      id={"delete-schedule-#{schedule.id}"}
                       phx-value-id={schedule.id}
                       data-confirm={"Delete schedule \"#{schedule.name}\"? This cannot be undone."}
                       class="btn btn-xs btn-error btn-outline"
@@ -90,11 +96,11 @@ defmodule TimelessUIWeb.PollerLive.Schedules do
                   </div>
                 </td>
               </tr>
-            <% end %>
-          </tbody>
-        </table>
+            </tbody>
+          </table>
+        </div>
       </div>
-    </div>
+    </Layouts.app>
     """
   end
 
@@ -105,67 +111,39 @@ defmodule TimelessUIWeb.PollerLive.Schedules do
         <h2 class="card-title mb-4">
           {if @editing, do: "Edit Schedule", else: "Add Schedule"}
         </h2>
-        <form phx-submit="save_schedule">
+        <.form for={@form} id="poller-schedule-form" phx-submit="save_schedule">
           <div class="grid grid-cols-2 gap-6 mb-6">
-            <div>
-              <div class="text-sm text-base-content/70 mb-2">Name *</div>
-              <input
-                type="text"
-                name="schedule[name]"
-                value={Changeset.get_field(@changeset, :name)}
-                required
-                class="input input-bordered w-full"
-                placeholder="eureka-ifx-5m"
-              />
-            </div>
-            <div>
-              <div class="text-sm text-base-content/70 mb-2">Cron Expression *</div>
-              <input
-                type="text"
-                name="schedule[cron]"
-                value={Changeset.get_field(@changeset, :cron)}
-                required
-                class="input input-bordered font-mono w-full"
-                placeholder="*/5 * * * *"
-              />
-            </div>
+            <.input
+              field={@form[:name]}
+              type="text"
+              label="Name"
+              required
+              placeholder="eureka-ifx-5m"
+            />
+            <.input
+              field={@form[:cron]}
+              type="text"
+              label="Cron Expression"
+              required
+              placeholder="*/5 * * * *"
+            />
           </div>
           <div class="grid grid-cols-2 gap-6 mb-6">
             <div>
               <div class="text-sm text-base-content/70 mb-2">
                 Host Tags <span class="text-base-content/40">(blank = all)</span>
               </div>
-              <input
-                type="text"
-                name="schedule[host_tags]"
-                value={Changeset.get_field(@changeset, :host_tags) || ""}
-                class="input input-bordered w-full"
-                placeholder="cm, eureka"
-              />
+              <.input field={@form[:host_tags]} type="text" placeholder="cm, eureka" />
             </div>
             <div>
               <div class="text-sm text-base-content/70 mb-2">
                 Request Tags <span class="text-base-content/40">(blank = all)</span>
               </div>
-              <input
-                type="text"
-                name="schedule[request_tags]"
-                value={Changeset.get_field(@changeset, :request_tags) || ""}
-                class="input input-bordered w-full"
-                placeholder="ifX"
-              />
+              <.input field={@form[:request_tags]} type="text" placeholder="ifX" />
             </div>
           </div>
           <div class="flex items-center gap-3 mb-6">
-            <input type="hidden" name="schedule[enabled]" value="false" />
-            <input
-              type="checkbox"
-              name="schedule[enabled]"
-              value="true"
-              checked={Changeset.get_field(@changeset, :enabled)}
-              class="checkbox"
-            />
-            <span class="text-sm">Enabled</span>
+            <.input field={@form[:enabled]} type="checkbox" label="Enabled" />
           </div>
           <div class="flex justify-end gap-2">
             <button type="button" phx-click="cancel_form" class="btn btn-ghost">Cancel</button>
@@ -173,7 +151,7 @@ defmodule TimelessUIWeb.PollerLive.Schedules do
               {if @editing, do: "Update", else: "Create"}
             </button>
           </div>
-        </form>
+        </.form>
       </div>
     </div>
     """
@@ -191,7 +169,7 @@ defmodule TimelessUIWeb.PollerLive.Schedules do
      assign(socket,
        show_form: true,
        editing: nil,
-       changeset: Schedules.change_schedule(%Schedule{})
+       form: to_form(Schedules.change_schedule(%Schedule{}))
      )}
   end
 
@@ -200,17 +178,21 @@ defmodule TimelessUIWeb.PollerLive.Schedules do
   end
 
   def handle_event("edit_schedule", %{"id" => id}, socket) do
-    schedule = Schedules.get_schedule!(id)
-
-    {:noreply,
-     assign(socket,
-       show_form: true,
-       editing: schedule,
-       changeset: Schedules.change_schedule(schedule)
-     )}
+    with {id, ""} <- Integer.parse(id),
+         {:ok, schedule} <- Schedules.get_schedule(id) do
+      {:noreply,
+       assign(socket,
+         show_form: true,
+         editing: schedule,
+         form: to_form(Schedules.change_schedule(schedule))
+       )}
+    else
+      _ -> {:noreply, put_flash(socket, :error, "Schedule no longer exists.")}
+    end
   end
 
   def handle_event("save_schedule", %{"schedule" => params}, socket) do
+    creating? = socket.assigns.editing == nil
     params = parse_boolean_fields(params, ["enabled"])
 
     result =
@@ -221,53 +203,69 @@ defmodule TimelessUIWeb.PollerLive.Schedules do
       end
 
     case result do
-      {:ok, _schedule} ->
+      {:ok, schedule} ->
         action = if socket.assigns.editing, do: "updated", else: "created"
+        schedules_count = socket.assigns.schedules_count + if(creating?, do: 1, else: 0)
 
         {:noreply,
          socket
-         |> assign(show_form: false, editing: nil, schedules: Schedules.list_schedules())
+         |> assign(
+           show_form: false,
+           editing: nil,
+           schedules_empty?: false,
+           schedules_count: schedules_count
+         )
+         |> stream_insert(:schedules, schedule)
          |> put_flash(:info, "Schedule #{action}.")}
 
       {:error, changeset} ->
         {:noreply,
          socket
-         |> assign(changeset: changeset)
+         |> assign(form: to_form(changeset))
          |> put_flash(:error, "Failed to save schedule.")}
     end
   end
 
   def handle_event("toggle_enabled", %{"id" => id}, socket) do
-    schedule = Schedules.get_schedule!(id)
+    with {id, ""} <- Integer.parse(id),
+         {:ok, schedule} <- Schedules.get_schedule(id) do
+      result =
+        if schedule.enabled do
+          Schedules.disable_schedule(schedule)
+        else
+          Schedules.enable_schedule(schedule)
+        end
 
-    result =
-      if schedule.enabled do
-        Schedules.disable_schedule(schedule)
-      else
-        Schedules.enable_schedule(schedule)
+      case result do
+        {:ok, schedule} ->
+          {:noreply, stream_insert(socket, :schedules, schedule)}
+
+        {:error, _} ->
+          {:noreply, put_flash(socket, :error, "Failed to toggle schedule.")}
       end
-
-    case result do
-      {:ok, _} ->
-        {:noreply, assign(socket, schedules: Schedules.list_schedules())}
-
-      {:error, _} ->
-        {:noreply, put_flash(socket, :error, "Failed to toggle schedule.")}
+    else
+      _ -> {:noreply, put_flash(socket, :error, "Schedule no longer exists.")}
     end
   end
 
   def handle_event("delete_schedule", %{"id" => id}, socket) do
-    schedule = Schedules.get_schedule!(id)
+    with {id, ""} <- Integer.parse(id),
+         {:ok, schedule} <- Schedules.get_schedule(id) do
+      case Schedules.delete_schedule(schedule) do
+        {:ok, deleted} ->
+          schedules_count = max(socket.assigns.schedules_count - 1, 0)
 
-    case Schedules.delete_schedule(schedule) do
-      {:ok, _} ->
-        {:noreply,
-         socket
-         |> assign(schedules: Schedules.list_schedules())
-         |> put_flash(:info, "Schedule deleted.")}
+          {:noreply,
+           socket
+           |> assign(schedules_empty?: schedules_count == 0, schedules_count: schedules_count)
+           |> stream_delete(:schedules, deleted)
+           |> put_flash(:info, "Schedule deleted.")}
 
-      {:error, _} ->
-        {:noreply, put_flash(socket, :error, "Failed to delete schedule.")}
+        {:error, _} ->
+          {:noreply, put_flash(socket, :error, "Failed to delete schedule.")}
+      end
+    else
+      _ -> {:noreply, put_flash(socket, :error, "Schedule no longer exists.")}
     end
   end
 
