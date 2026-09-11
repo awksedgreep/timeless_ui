@@ -569,6 +569,7 @@ defmodule TimelessUI.TelemetryAuth do
     do: Map.new(map, fn {key, value} -> {to_string(key), value} end)
 
   defp stringify_keys(_), do: %{}
+
   @doc """
   The complete wire construction for a data-plane token: claims map + kid +
   raw Ed25519 private key -> signed compact JWS. Pure and deterministic so

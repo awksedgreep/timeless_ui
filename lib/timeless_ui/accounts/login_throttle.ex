@@ -140,7 +140,14 @@ defmodule TimelessUI.Accounts.LoginThrottle do
 
   @impl true
   def init(_opts) do
-    :ets.new(@table, [:set, :public, :named_table, read_concurrency: true, write_concurrency: true])
+    :ets.new(@table, [
+      :set,
+      :public,
+      :named_table,
+      read_concurrency: true,
+      write_concurrency: true
+    ])
+
     schedule_sweep()
     {:ok, %{}}
   end

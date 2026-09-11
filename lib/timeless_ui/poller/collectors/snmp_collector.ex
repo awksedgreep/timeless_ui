@@ -1,6 +1,6 @@
 defmodule TimelessUI.Poller.Collectors.SnmpCollector do
   @moduledoc """
-  SNMP collector using SnmpKit MultiV2 for high-performance polling.
+  SNMP collector using SnmpKit's multi-target API for high-performance polling.
 
   Supports two modes:
 
@@ -136,7 +136,7 @@ defmodule TimelessUI.Poller.Collectors.SnmpCollector do
         version: :v2c
       ]
 
-    case SnmpKit.SnmpMgr.MultiV2.walk_multi([{target, table.base_oid, request_opts}]) do
+    case SnmpKit.SnmpMgr.walk_multi([{target, table.base_oid, request_opts}]) do
       [{:ok, varbinds}] when is_list(varbinds) ->
         {:ok, varbinds}
 
@@ -364,7 +364,7 @@ defmodule TimelessUI.Poller.Collectors.SnmpCollector do
     case type do
       "snmpget" ->
         targets = Enum.map(oids, fn oid -> {target, extract_oid(oid), base_opts} end)
-        SnmpKit.SnmpMgr.MultiV2.get_multi(targets)
+        SnmpKit.SnmpMgr.get_multi(targets)
 
       "snmpwalk" ->
         targets =
@@ -372,7 +372,7 @@ defmodule TimelessUI.Poller.Collectors.SnmpCollector do
             {target, extract_oid(oid), Keyword.put(base_opts, :max_repetitions, max_rep)}
           end)
 
-        SnmpKit.SnmpMgr.MultiV2.walk_multi(targets)
+        SnmpKit.SnmpMgr.walk_multi(targets)
 
       "snmpbulkwalk" ->
         targets =
@@ -380,7 +380,7 @@ defmodule TimelessUI.Poller.Collectors.SnmpCollector do
             {target, extract_oid(oid), Keyword.put(base_opts, :max_repetitions, max_rep)}
           end)
 
-        SnmpKit.SnmpMgr.MultiV2.get_bulk_multi(targets)
+        SnmpKit.SnmpMgr.get_bulk_multi(targets)
 
       _ ->
         Logger.warning("Unknown SNMP type: #{type}, defaulting to walk")
@@ -390,7 +390,7 @@ defmodule TimelessUI.Poller.Collectors.SnmpCollector do
             {target, extract_oid(oid), Keyword.put(base_opts, :max_repetitions, max_rep)}
           end)
 
-        SnmpKit.SnmpMgr.MultiV2.walk_multi(targets)
+        SnmpKit.SnmpMgr.walk_multi(targets)
     end
   end
 

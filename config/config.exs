@@ -102,8 +102,7 @@ import_config "#{config_env()}.exs"
 # auth is enabled) tokens from the supervised plane processes.
 config :timeless_logs_dashboard,
        :historical_source,
-       {TimelessLogsDashboard.HistoricalSource.DataPlane,
-        client: TimelessUI.LogsDataPlane.Client}
+       {TimelessLogsDashboard.HistoricalSource.DataPlane, client: TimelessUI.LogsDataPlane.Client}
 
 config :timeless_traces_dashboard,
        :historical_source,

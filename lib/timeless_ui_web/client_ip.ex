@@ -145,5 +145,4 @@ defmodule TimelessUIWeb.ClientIP do
     |> Tuple.to_list()
     |> Enum.reduce(0, fn part, acc -> (acc <<< size) + part end)
   end
-
 end

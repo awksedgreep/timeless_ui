@@ -95,5 +95,4 @@ defmodule TimelessUIWeb.ScrapeTargetParamsTest do
       assert {:ok, _} = ScrapeTargetLive.build_api_params(params)
     end
   end
-
 end

@@ -4,7 +4,7 @@ defmodule TimelessUI.MixProject do
   def project do
     [
       app: :timeless_ui,
-      version: "0.9.20",
+      version: "0.9.21",
       elixir: "~> 1.15",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
@@ -48,9 +48,9 @@ defmodule TimelessUI.MixProject do
       {:ecto_sqlite3, ">= 0.0.0"},
       {:phoenix_html, "~> 4.1"},
       {:phoenix_live_reload, "~> 1.2", only: :dev},
-      {:phoenix_live_view, "~> 1.1.0"},
+      {:phoenix_live_view, "~> 1.2"},
       {:lazy_html, ">= 0.1.0", only: :test},
-      {:phoenix_live_dashboard, "~> 0.8.3"},
+      {:phoenix_live_dashboard, "~> 0.9"},
       {:timeless_logs_dashboard, "~> 0.7"},
       {:timeless_traces_dashboard, "~> 0.3"},
       {:esbuild, "~> 0.10", runtime: Mix.env() == :dev},
@@ -65,7 +65,7 @@ defmodule TimelessUI.MixProject do
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_poller, "~> 1.0"},
       {:jason, "~> 1.2"},
-      {:dns_cluster, "~> 0.2.0"},
+      {:dns_cluster, "~> 0.3"},
       {:swoosh, "~> 1.4"},
       {:bandit, "~> 1.5"},
       {:timeless_canvas, github: "awksedgreep/timeless_canvas", branch: "main"},
@@ -75,7 +75,7 @@ defmodule TimelessUI.MixProject do
       {:crontab, "~> 1.1"},
       {:raw_ping, "~> 0.3.1"},
       {:req, "~> 0.5"},
-      {:snmpkit, "~> 1.3"}
+      {:snmpkit, "~> 2.0"}
     ]
   end
 
