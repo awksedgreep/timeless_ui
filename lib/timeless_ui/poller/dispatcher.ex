@@ -254,7 +254,7 @@ defmodule TimelessUI.Poller.Dispatcher do
 
       {:error, reason} ->
         case MetricsWriter.write_metrics([
-               PrometheusCollector.failure_metric(host, System.system_time(:millisecond))
+               PrometheusCollector.failure_metric(host, System.system_time(:second))
              ]) do
           :ok -> {:error, {:prometheus_scrape, reason}}
           {:error, write_reason} -> {:error, {:prometheus_scrape, reason, write_reason}}
