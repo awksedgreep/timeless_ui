@@ -2,24 +2,37 @@ defmodule TimelessUI.MetricsDataPlane.CanvasSource do
   @moduledoc """
   Opt-in Canvas data source that routes graph history through the Rust process.
 
-  Session 5 switches only `metric_range/5`. Every live status, subscription,
-  metadata, and product-oriented callback remains with the configured Elixir
-  fallback source.
+  Three callbacks go to the plane: `metric_range/5` (one series, from the
+  export route), and `metric_range/6` and `top_series/5` (series combined,
+  filtered, and ranked, from the PromQL routes). Every live status,
+  subscription, metadata, and product-oriented callback remains with the
+  configured Elixir fallback source.
+
+  With `source: :fallback`, all three go to the fallback. Exporting them is
+  what offers the `top_n` element and the graph aggregate to the canvas, so
+  a fallback that does not have `metric_range/6` and `top_series/5` answers
+  those with an error.
+
+  What an element selects by is `TimelessCanvas.Canvas.Element.query_labels/1`
+  and `query_matchers/1`: every field that does not configure the element.
+
+  ## Options
+
+    * `:lookback_seconds` — how far back a sample still counts as the
+      present, for the PromQL routes, unless the element sets a `window`.
+      Default `30`. The plane's own is five minutes, which counts a series
+      for five minutes after it has stopped reporting.
   """
 
   @behaviour TimelessCanvas.DataSource
 
+  alias TimelessCanvas.Canvas.Element
   alias TimelessUI.MetricsDataPlane.Client
+  alias TimelessUI.MetricsDataPlane.PromQL
 
-  @internal_graph_fields ~w(
-    metric_name
-    series_label_key
-    series_label_value
-    y_min
-    y_max
-    icon
-    os_icon
-  )
+  @default_lookback_seconds 30
+  # A graph's window, in points, at which the canvas downsamples anyway.
+  @range_steps 300
 
   @impl true
   def init(config) do
@@ -32,6 +45,7 @@ defmodule TimelessUI.MetricsDataPlane.CanvasSource do
          source: fetch(config, :source, :data_plane),
          client: fetch(config, :client, Client),
          client_opts: fetch(config, :client_opts, []),
+         lookback_seconds: fetch(config, :lookback_seconds, @default_lookback_seconds),
          fallback: fallback,
          fallback_state: fallback_state
        }}
@@ -44,15 +58,89 @@ defmodule TimelessUI.MetricsDataPlane.CanvasSource do
   end
 
   def metric_range(state, element, metric, %DateTime{} = from, %DateTime{} = to) do
-    labels = graph_labels(element.meta)
+    labels = Element.query_labels(element)
     from_seconds = DateTime.to_unix(from, :second)
     to_seconds = DateTime.to_unix(to, :second)
 
     with {:ok, series} <-
            state.client.export(metric, labels, from_seconds, to_seconds, state.client_opts),
-         {:ok, points} <- exact_points(series, metric, labels) do
+         {:ok, points} <- one_series(series, metric, labels) do
       {:ok, points}
     end
+  end
+
+  @impl true
+  def metric_range(%{source: :fallback} = state, element, metric, from, to, opts) do
+    fallback_or_unsupported(state, :metric_range, [
+      state.fallback_state,
+      element,
+      metric,
+      from,
+      to,
+      opts
+    ])
+  end
+
+  def metric_range(state, element, metric, %DateTime{} = from, %DateTime{} = to, opts) do
+    matchers = Element.query_matchers(element)
+    from_seconds = DateTime.to_unix(from, :second)
+    to_seconds = DateTime.to_unix(to, :second)
+    step = max(div(to_seconds - from_seconds, @range_steps), 1)
+    query = PromQL.range_query(metric, matchers, opts)
+
+    with {:ok, body} <-
+           state.client.prometheus_range(
+             query,
+             from_seconds,
+             to_seconds,
+             step,
+             promql_opts(state, opts)
+           ),
+         {:ok, series} <- PromQL.series(body) do
+      case {Keyword.get(opts, :aggregate), series} do
+        # Combined, there is one series, or none.
+        {aggregate, [%{points: points} | _]} when not is_nil(aggregate) -> {:ok, points}
+        {_aggregate, []} -> {:ok, []}
+        # Not combined, it is one series as metric_range/5 draws one.
+        {nil, [%{points: points}]} -> {:ok, points}
+        {nil, _several} -> {:error, {:ambiguous_series, metric, matchers}}
+      end
+    end
+  end
+
+  @impl true
+  def top_series(%{source: :fallback} = state, element, metric, time, opts) do
+    fallback_or_unsupported(state, :top_series, [
+      state.fallback_state,
+      element,
+      metric,
+      time,
+      opts
+    ])
+  end
+
+  def top_series(state, element, metric, %DateTime{} = time, opts) do
+    query = PromQL.top_query(metric, Element.query_matchers(element), opts)
+
+    with {:ok, body} <-
+           state.client.prometheus_instant(
+             query,
+             DateTime.to_unix(time, :second),
+             promql_opts(state, opts)
+           ) do
+      PromQL.rows(body, Keyword.get(opts, :order, :desc))
+    end
+  end
+
+  defp promql_opts(state, opts) do
+    lookback = Keyword.get(opts, :window) || state.lookback_seconds
+    Keyword.put(state.client_opts, :lookback_delta, lookback)
+  end
+
+  defp fallback_or_unsupported(state, function, args) do
+    if function_exported?(state.fallback, function, length(args)),
+      do: apply(state.fallback, function, args),
+      else: {:error, {:unsupported_by_fallback, function}}
   end
 
   @impl true
@@ -144,27 +232,19 @@ defmodule TimelessUI.MetricsDataPlane.CanvasSource do
     )
   end
 
-  defp graph_labels(meta) when is_map(meta) do
-    labels =
-      meta
-      |> Map.drop(@internal_graph_fields)
-      |> Enum.reject(fn {_key, value} -> value in [nil, ""] end)
-      |> Map.new()
-
-    case {meta["series_label_key"], meta["series_label_value"]} do
-      {key, value} when is_binary(key) and key != "" and is_binary(value) and value != "" ->
-        Map.put(labels, key, value)
-
-      _ ->
-        labels
-    end
-  end
-
-  defp graph_labels(_meta), do: %{}
-
-  defp exact_points(series, metric, labels) do
+  # The one series the element asks for. A series has every label it was
+  # written with, and an element names the ones that pick it out: a process
+  # is asked for by `host` and `proc`, and its series has `pid`, `comm`,
+  # `user`, and `unit` besides. So a series matches when it has the
+  # element's labels, whatever else it has. Two that match is still an
+  # error, and not the first of them: an element that does not say which
+  # series it means is not drawn as if it did.
+  defp one_series(series, metric, labels) do
     matches =
-      Enum.filter(series, fn row -> row.metric == metric and row.labels == labels end)
+      Enum.filter(series, fn row ->
+        row.metric == metric and is_map(row.labels) and
+          Enum.all?(labels, fn {key, value} -> Map.get(row.labels, key) == value end)
+      end)
 
     case matches do
       [] -> {:ok, []}
