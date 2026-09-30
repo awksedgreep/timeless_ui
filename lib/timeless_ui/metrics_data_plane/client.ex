@@ -81,15 +81,59 @@ defmodule TimelessUI.MetricsDataPlane.Client do
     data_array_request("/api/v1/series", %{"metric" => metric}, opts)
   end
 
+  @doc """
+  An instant PromQL query, at `time` or now.
+
+  `opts[:lookback_delta]` is how far back the last sample of a series still
+  counts, as seconds or as a Prometheus duration (`"30s"`). The plane's own
+  is five minutes, which counts a series for five minutes after it has
+  stopped reporting; a reader of series that end, as processes do, passes
+  something near three times their sampling interval.
+  """
   def prometheus_instant(query, time \\ nil, opts \\ []) when is_binary(query) do
-    params = maybe_put(%{"query" => query}, "time", time)
-    json_request(:get, "/prometheus/api/v1/query", Keyword.put(opts, :params, params))
+    with {:ok, params} <- prometheus_params(%{"query" => query}, opts) do
+      params = maybe_put(params, "time", time)
+      json_request(:get, "/prometheus/api/v1/query", Keyword.put(opts, :params, params))
+    end
   end
 
+  @doc """
+  A range PromQL query from `from` to `to` in steps of `step`. Takes
+  `:lookback_delta` as `prometheus_instant/3` does.
+  """
   def prometheus_range(query, from, to, step, opts \\ [])
       when is_binary(query) and is_integer(from) and is_integer(to) do
-    params = %{"query" => query, "start" => from, "end" => to, "step" => step}
-    json_request(:get, "/prometheus/api/v1/query_range", Keyword.put(opts, :params, params))
+    with {:ok, params} <-
+           prometheus_params(
+             %{"query" => query, "start" => from, "end" => to, "step" => step},
+             opts
+           ) do
+      json_request(:get, "/prometheus/api/v1/query_range", Keyword.put(opts, :params, params))
+    end
+  end
+
+  # A Prometheus duration: one or more of a number and a unit, `1h30m`.
+  @prometheus_duration ~r/\A(\d+(ms|s|m|h|d|w|y))+\z/
+
+  defp prometheus_params(params, opts) do
+    case Keyword.get(opts, :lookback_delta) do
+      nil ->
+        {:ok, params}
+
+      seconds when is_integer(seconds) and seconds > 0 ->
+        {:ok, Map.put(params, "lookback_delta", "#{seconds}s")}
+
+      seconds when is_float(seconds) and seconds > 0 ->
+        {:ok, Map.put(params, "lookback_delta", seconds)}
+
+      duration when is_binary(duration) ->
+        if duration =~ @prometheus_duration,
+          do: {:ok, Map.put(params, "lookback_delta", duration)},
+          else: {:error, {:invalid_lookback_delta, duration}}
+
+      other ->
+        {:error, {:invalid_lookback_delta, other}}
+    end
   end
 
   defp expect_empty_success(method, path, body, opts) do

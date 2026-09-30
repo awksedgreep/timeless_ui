@@ -44,6 +44,56 @@ defmodule TimelessUI.MetricsDataPlane.ClientTest do
     assert promql[:params] == %{"query" => "cpu{host=\"edge\"}", "time" => 10}
   end
 
+  test "a lookback is sent to the PromQL routes, and only when it is asked for" do
+    request = fn options ->
+      send(self(), {:request_options, options})
+      {:ok, %{status: 200, body: ~s({"status":"success","data":{"result":[]}})}}
+    end
+
+    opts = [base_url: "http://127.0.0.1:19439", request: request]
+
+    assert {:ok, _} = Client.prometheus_instant("up", nil, opts)
+    assert_received {:request_options, plain}
+    refute Map.has_key?(plain[:params], "lookback_delta")
+    refute Map.has_key?(plain[:params], "time")
+
+    assert {:ok, _} = Client.prometheus_instant("up", 10, [lookback_delta: 30] ++ opts)
+    assert_received {:request_options, seconds}
+    assert seconds[:params] == %{"query" => "up", "time" => 10, "lookback_delta" => "30s"}
+
+    assert {:ok, _} = Client.prometheus_instant("up", nil, [lookback_delta: "1h30m"] ++ opts)
+    assert_received {:request_options, duration}
+    assert duration[:params]["lookback_delta"] == "1h30m"
+
+    assert {:ok, _} = Client.prometheus_instant("up", nil, [lookback_delta: 2.5] ++ opts)
+    assert_received {:request_options, fraction}
+    assert fraction[:params]["lookback_delta"] == 2.5
+
+    assert {:ok, _} = Client.prometheus_range("up", 0, 60, 15, [lookback_delta: 30] ++ opts)
+    assert_received {:request_options, range}
+
+    assert range[:params] == %{
+             "query" => "up",
+             "start" => 0,
+             "end" => 60,
+             "step" => 15,
+             "lookback_delta" => "30s"
+           }
+  end
+
+  test "a lookback that is not a duration is refused before anything is sent" do
+    request = fn _options -> flunk("nothing should be sent") end
+    opts = [base_url: "http://127.0.0.1:19439", request: request]
+
+    for bad <- [0, -30, "30", "30 s", "soon", "1s;drop", :s, %{}] do
+      assert {:error, {:invalid_lookback_delta, ^bad}} =
+               Client.prometheus_instant("up", nil, [lookback_delta: bad] ++ opts)
+
+      assert {:error, {:invalid_lookback_delta, ^bad}} =
+               Client.prometheus_range("up", 0, 60, 15, [lookback_delta: bad] ++ opts)
+    end
+  end
+
   test "decodes a complete Victoria export into millisecond Canvas points" do
     body =
       Jason.encode!(%{
