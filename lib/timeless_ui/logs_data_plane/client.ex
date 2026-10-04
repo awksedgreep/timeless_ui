@@ -109,7 +109,7 @@ defmodule TimelessUI.LogsDataPlane.Client do
   end
 
   def stats(opts \\ []), do: json_request(:get, "/select/logsql/stats", opts)
-  def flush(opts \\ []), do: json_request(:get, "/api/v1/flush", opts)
+  def flush(opts \\ []), do: json_request(:post, "/api/v1/flush", opts)
 
   def backup(destination, opts \\ []) when is_binary(destination) do
     json_request(

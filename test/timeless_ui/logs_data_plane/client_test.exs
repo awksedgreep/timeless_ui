@@ -3,6 +3,22 @@ defmodule TimelessUI.LogsDataPlane.ClientTest do
 
   alias TimelessUI.LogsDataPlane.Client
 
+  test "flush sends an authenticated POST to the maintenance endpoint" do
+    token = "header.payload.signature"
+    endpoint = serve_once(~s({"status":"ok"}), self())
+    name = {:global, {:logs_flush_process, System.unique_integer([:positive])}}
+
+    start_supervised!(
+      {TimelessUI.MetricsDataPlaneProcessFixture, name: name, endpoint: endpoint, token: token}
+    )
+
+    assert {:ok, %{"status" => "ok"}} = Client.flush(process: name)
+
+    assert_receive {:request, request}
+    assert request =~ "POST /api/v1/flush HTTP/1.1\r\n"
+    assert String.downcase(request) =~ "authorization: bearer #{token}"
+  end
+
   test "backup is one authenticated JSON maintenance operation" do
     request = fn options ->
       send(self(), {:backup_request, options})
