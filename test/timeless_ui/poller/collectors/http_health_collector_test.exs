@@ -53,13 +53,13 @@ defmodule TimelessUI.Poller.Collectors.HttpHealthCollectorTest do
     config =
       @config
       |> Map.put("scheme", "https")
-      |> Map.put("ca_file", "/etc/pmon-caddy-roots.pem")
+      |> Map.put("ca_file", "/etc/monitor-ca.pem")
 
     fetcher = fn url, opts ->
       assert url == "https://192.168.160.220:4000/health/ready"
 
       assert opts[:connect_options][:transport_opts] ==
-               [cacertfile: "/etc/pmon-caddy-roots.pem"]
+               [cacertfile: "/etc/monitor-ca.pem"]
 
       assert opts[:retry] == false
 

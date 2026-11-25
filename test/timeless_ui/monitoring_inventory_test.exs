@@ -8,37 +8,37 @@ defmodule TimelessUI.MonitoringInventoryTest do
     manifest = %{
       "scrape_targets" => [
         %{
-          "job_name" => "pmon-node-pchr1",
-          "address" => "10.200.30.2:9100",
-          "labels" => %{"managed_by" => "ddinfra-pmon", "host" => "pchr1"}
+          "job_name" => "ops-node-router-a",
+          "address" => "192.0.2.2:9100",
+          "labels" => %{"managed_by" => "ops-monitor", "host" => "router-a"}
         }
       ],
-      "poller_hosts" => [%{"name" => "pchr1", "ip" => "10.200.30.2", "tags" => "pmon,chr"}],
+      "poller_hosts" => [%{"name" => "router-a", "ip" => "192.0.2.2", "tags" => "ops,routeros"}],
       "poller_requests" => [
         %{
-          "name" => "pmon-chr-rest",
+          "name" => "ops-routeros-rest",
           "type" => "mikrotik_rest",
-          "tags" => "pmon,chr",
+          "tags" => "ops,routeros",
           "config" => %{
-            "profile" => "core_chr",
-            "username" => "pmon",
-            "password_env" => "PMON_ROUTEROS_PASSWORD"
+            "profile" => "routeros_inventory",
+            "username" => "monitor",
+            "password_env" => "ROUTEROS_PASSWORD"
           }
         }
       ],
       "poller_schedules" => [
         %{
-          "name" => "pmon-chr-minute",
+          "name" => "ops-routeros-minute",
           "cron" => "* * * * *",
-          "host_tags" => "pmon,chr",
-          "request_tags" => "pmon,chr",
+          "host_tags" => "ops,routeros",
+          "request_tags" => "ops,routeros",
           "enabled" => true
         }
       ]
     }
 
     assert %{scrape_targets: 1, poller_hosts: 1, poller_requests: 1, poller_schedules: 1} =
-             MonitoringInventory.apply!(manifest, sync: false)
+             MonitoringInventory.apply!(manifest, managed_by: "ops-monitor", sync: false)
 
     version = PrometheusTargets.version()
 
@@ -51,15 +51,18 @@ defmodule TimelessUI.MonitoringInventoryTest do
     assert Repo.aggregate(Request, :count) == 1
     assert Repo.aggregate(Schedule, :count) == 1
 
-    assert Repo.get_by(Request, name: "pmon-chr-rest").config["password_env"] ==
-             "PMON_ROUTEROS_PASSWORD"
+    assert Repo.get_by(Request, name: "ops-routeros-rest").config["password_env"] ==
+             "ROUTEROS_PASSWORD"
 
-    updated = put_in(manifest, ["scrape_targets", Access.at(0), "address"], "10.200.30.3:9100")
-    assert %{scrape_targets: 1} = MonitoringInventory.apply!(updated, sync: false)
+    updated = put_in(manifest, ["scrape_targets", Access.at(0), "address"], "192.0.2.3:9100")
+
+    assert %{scrape_targets: 1} =
+             MonitoringInventory.apply!(updated, managed_by: "ops-monitor", sync: false)
+
     assert PrometheusTargets.version() == version + 1
 
-    assert Repo.get_by(PrometheusTarget, job_name: "pmon-node-pchr1").address ==
-             "10.200.30.3:9100"
+    assert Repo.get_by(PrometheusTarget, job_name: "ops-node-router-a").address ==
+             "192.0.2.3:9100"
   end
 
   test "refuses inline credentials before writing any records" do
@@ -73,9 +76,30 @@ defmodule TimelessUI.MonitoringInventoryTest do
     }
 
     assert_raise ArgumentError, ~r/credentials/, fn ->
-      MonitoringInventory.apply!(manifest, sync: false)
+      MonitoringInventory.apply!(manifest, managed_by: "ops-monitor", sync: false)
     end
 
     assert Repo.aggregate(Request, :count) == 0
+  end
+
+  test "requires the caller's ownership label before importing targets" do
+    manifest = %{
+      "scrape_targets" => [
+        %{
+          "job_name" => "ops-node-router-a",
+          "address" => "192.0.2.2:9100",
+          "labels" => %{"managed_by" => "another-monitor"}
+        }
+      ],
+      "poller_hosts" => [],
+      "poller_requests" => [],
+      "poller_schedules" => []
+    }
+
+    assert_raise ArgumentError, ~r/ownership label/, fn ->
+      MonitoringInventory.apply!(manifest, managed_by: "ops-monitor", sync: false)
+    end
+
+    assert Repo.aggregate(PrometheusTarget, :count) == 0
   end
 end

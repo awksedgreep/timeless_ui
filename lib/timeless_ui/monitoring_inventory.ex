@@ -1,10 +1,11 @@
 defmodule TimelessUI.MonitoringInventory do
   @moduledoc """
-  Reconciles the dedicated monitoring instance from ddinfra's target manifest.
+  Reconciles scrape and poller targets from an operator-provided manifest.
 
-  The manifest contains target addresses and an environment variable name for
-  RouterOS credentials, never credential values. Reapplying an identical
-  manifest does not bump the Rust scraper target version.
+  Scrape targets must share a nonempty `managed_by` label. The caller can pin
+  that value with `:managed_by`. Credentials belong in environment variables,
+  never the manifest. Reapplying an identical manifest does not bump the Rust
+  scraper target version.
   """
 
   alias TimelessUI.{MetricsAPI, PrometheusTarget, PrometheusTargets, Repo}
@@ -12,12 +13,12 @@ defmodule TimelessUI.MonitoringInventory do
 
   @sections ~w(scrape_targets poller_hosts poller_requests poller_schedules)
 
-  def apply_file!(path) when is_binary(path) do
-    path |> File.read!() |> Jason.decode!() |> apply!()
+  def apply_file!(path, opts \\ []) when is_binary(path) and is_list(opts) do
+    path |> File.read!() |> Jason.decode!() |> apply!(opts)
   end
 
-  def apply!(manifest, opts \\ []) when is_map(manifest) do
-    validate_manifest!(manifest)
+  def apply!(manifest, opts \\ []) when is_map(manifest) and is_list(opts) do
+    validate_manifest!(manifest, opts)
 
     {:ok, result} =
       Repo.transaction(fn ->
@@ -40,16 +41,33 @@ defmodule TimelessUI.MonitoringInventory do
     result
   end
 
-  defp validate_manifest!(manifest) do
+  defp validate_manifest!(manifest, opts) do
     Enum.each(@sections, fn section ->
       unless is_list(manifest[section]) and Enum.all?(manifest[section], &is_map/1) do
         raise ArgumentError, "#{section} must be a list of objects"
       end
     end)
 
+    managed_by =
+      case Keyword.fetch(opts, :managed_by) do
+        {:ok, owner} ->
+          owner
+
+        :error ->
+          case manifest["scrape_targets"] do
+            [target | _] -> get_in(target, ["labels", "managed_by"])
+            [] -> nil
+          end
+      end
+
+    if (managed_by != nil or manifest["scrape_targets"] != []) and
+         (not is_binary(managed_by) or String.trim(managed_by) == "") do
+      raise ArgumentError, "scrape targets need a nonempty managed_by ownership label"
+    end
+
     Enum.each(manifest["scrape_targets"], fn target ->
-      unless get_in(target, ["labels", "managed_by"]) == "ddinfra-pmon" do
-        raise ArgumentError, "scrape targets need the ddinfra-pmon ownership label"
+      unless get_in(target, ["labels", "managed_by"]) == managed_by do
+        raise ArgumentError, "scrape targets need the requested managed_by ownership label"
       end
 
       if Map.has_key?(target, "auth") do

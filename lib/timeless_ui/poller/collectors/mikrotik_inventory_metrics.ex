@@ -1,6 +1,6 @@
-defmodule TimelessUI.Poller.Collectors.MikrotikCoreMetrics do
+defmodule TimelessUI.Poller.Collectors.MikrotikInventoryMetrics do
   @moduledoc """
-  Inventory-free CHR telemetry: every interface, GRE tunnel, WireGuard
+  RouterOS inventory telemetry: every interface, GRE tunnel, WireGuard
   interface/peer, and VRRP instance returned by RouterOS REST is measured.
 
   Credentials come from a named environment variable, never the poller DB.
@@ -62,12 +62,12 @@ defmodule TimelessUI.Poller.Collectors.MikrotikCoreMetrics do
         if is_binary(password) and password != "" do
           collect(host, config, opts, password, ts)
         else
-          Logger.warning("CHR collector credential missing for #{host.name}")
+          Logger.warning("RouterOS collector credential missing for #{host.name}")
           {:ok, failure_metrics(host.name, ts, "auth")}
         end
 
       {:error, reason} ->
-        Logger.warning("CHR collector configuration invalid for #{host.name}: #{reason}")
+        Logger.warning("RouterOS collector configuration invalid for #{host.name}: #{reason}")
         {:ok, failure_metrics(host.name, ts, "config")}
     end
   end
@@ -100,7 +100,9 @@ defmodule TimelessUI.Poller.Collectors.MikrotikCoreMetrics do
                  ] ++ metrics, failures}
 
               :error ->
-                Logger.warning("CHR collector received malformed #{resource} from #{host.name}")
+                Logger.warning(
+                  "RouterOS collector received malformed #{resource} from #{host.name}"
+                )
 
                 {[
                    metric("routeros_collection_success", host.name, 0, ts, %{
@@ -111,7 +113,9 @@ defmodule TimelessUI.Poller.Collectors.MikrotikCoreMetrics do
             end
 
           {:error, status} ->
-            Logger.warning("CHR collector #{resource} failed for #{host.name}, status=#{status}")
+            Logger.warning(
+              "RouterOS collector #{resource} failed for #{host.name}, status=#{status}"
+            )
 
             {[
                metric("routeros_collection_success", host.name, 0, ts, %{

@@ -5,9 +5,9 @@ defmodule TimelessUI.Poller.Collectors.MikrotikRestCollector do
   Collects metrics from MikroTik routers using the REST API available
   in RouterOS v7 and later.
 
-  The `core_chr` profile uses the shared `MikrotikApi` library, discovers every
-  CHR tunnel/peer, and reads its credential from `password_env`. The older
-  generic endpoint profile below remains available for existing requests.
+  The `routeros_inventory` profile uses the shared `MikrotikApi` library,
+  discovers every RouterOS tunnel/peer, and reads its credential from
+  `password_env`. The older generic endpoint profile remains available.
 
   ## Per-request configuration (in request.config)
 
@@ -27,14 +27,18 @@ defmodule TimelessUI.Poller.Collectors.MikrotikRestCollector do
 
   require Logger
 
-  alias TimelessUI.Poller.Collectors.MikrotikCoreMetrics
+  alias TimelessUI.Poller.Collectors.MikrotikInventoryMetrics
 
   @impl true
   def init(_config), do: :ok
 
   @impl true
-  def validate_config(%{"profile" => "core_chr"} = config),
-    do: MikrotikCoreMetrics.validate_config(config)
+  def validate_config(%{"profile" => "routeros_inventory"} = config),
+    do: MikrotikInventoryMetrics.validate_config(config)
+
+  def validate_config(%{"password_env" => _} = config)
+      when not is_map_key(config, "endpoints"),
+      do: MikrotikInventoryMetrics.validate_config(config)
 
   def validate_config(config) when is_map(config) do
     cond do
@@ -63,8 +67,12 @@ defmodule TimelessUI.Poller.Collectors.MikrotikRestCollector do
   @impl true
   def execute(host, request, config, opts \\ [])
 
-  def execute(host, _request, %{"profile" => "core_chr"} = config, opts),
-    do: MikrotikCoreMetrics.execute(host, config, opts)
+  def execute(host, _request, %{"profile" => "routeros_inventory"} = config, opts),
+    do: MikrotikInventoryMetrics.execute(host, config, opts)
+
+  def execute(host, _request, %{"password_env" => _} = config, opts)
+      when not is_map_key(config, "endpoints"),
+      do: MikrotikInventoryMetrics.execute(host, config, opts)
 
   def execute(host, _request, config, opts) do
     timeout = Keyword.get(opts, :mikrotik_timeout_ms, 5_000)

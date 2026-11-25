@@ -1,13 +1,13 @@
-defmodule TimelessUI.Poller.Collectors.MikrotikCoreMetricsTest do
+defmodule TimelessUI.Poller.Collectors.MikrotikInventoryMetricsTest do
   use ExUnit.Case, async: true
 
-  alias TimelessUI.Poller.Collectors.{MikrotikCoreMetrics, MikrotikRestCollector}
+  alias TimelessUI.Poller.Collectors.{MikrotikInventoryMetrics, MikrotikRestCollector}
 
-  @host %{name: "pchr1", ip: "10.200.30.2"}
+  @host %{name: "router-a", ip: "192.0.2.2"}
   @config %{
-    "profile" => "core_chr",
-    "username" => "pmon",
-    "password_env" => "PMON_ROUTEROS_PASSWORD",
+    "profile" => "routeros_inventory",
+    "username" => "monitor",
+    "password_env" => "ROUTEROS_PASSWORD",
     "port" => 80,
     "ssl" => false
   }
@@ -25,7 +25,7 @@ defmodule TimelessUI.Poller.Collectors.MikrotikCoreMetricsTest do
              "total-hdd-space" => "400",
              "uptime" => "1w2d3h4m5s",
              "version" => "7.24.2",
-             "board-name" => "CHR"
+             "board-name" => "RouterBOARD"
            }
 
          "/system/health" ->
@@ -50,7 +50,7 @@ defmodule TimelessUI.Poller.Collectors.MikrotikCoreMetricsTest do
                "tx-byte" => "0"
              },
              %{
-               "name" => "wgdiablo",
+               "name" => "wg-main",
                "type" => "wg",
                "running" => "true",
                "disabled" => "false",
@@ -72,13 +72,13 @@ defmodule TimelessUI.Poller.Collectors.MikrotikCoreMetricsTest do
            ]
 
          "/interface/wireguard" ->
-           [%{"name" => "wgdiablo", "running" => "true", "disabled" => "false"}]
+           [%{"name" => "wg-main", "running" => "true", "disabled" => "false"}]
 
          "/interface/wireguard/peers" ->
            [
              %{
                "name" => "peer1",
-               "interface" => "wgdiablo",
+               "interface" => "wg-main",
                "disabled" => "false",
                "rx" => "100",
                "tx" => "200",
@@ -88,7 +88,7 @@ defmodule TimelessUI.Poller.Collectors.MikrotikCoreMetricsTest do
              },
              %{
                "name" => "peer2",
-               "interface" => "wgdiablo",
+               "interface" => "wg-main",
                "disabled" => "false",
                "rx" => "0",
                "tx" => "0"
@@ -112,7 +112,7 @@ defmodule TimelessUI.Poller.Collectors.MikrotikCoreMetricsTest do
   end
 
   test "collects every tunnel, peer, counter, and role without secret labels" do
-    assert :ok = MikrotikCoreMetrics.validate_config(@config)
+    assert :ok = MikrotikInventoryMetrics.validate_config(@config)
     assert :ok = MikrotikRestCollector.validate_config(@config)
 
     assert {:ok, metrics} =
@@ -144,9 +144,23 @@ defmodule TimelessUI.Poller.Collectors.MikrotikCoreMetricsTest do
            end)
   end
 
+  test "environment-backed inventory requests do not depend on a profile name" do
+    config = Map.put(@config, "profile", "existing-profile")
+
+    assert :ok = MikrotikRestCollector.validate_config(config)
+
+    assert {:ok, metrics} =
+             MikrotikRestCollector.execute(@host, nil, config,
+               client: Client,
+               password_provider: fn _ -> "vault-secret" end
+             )
+
+    assert value(metrics, "routeros_up") == 1
+  end
+
   test "a failed peer request remains visible and marks the router unhealthy" do
     assert {:ok, metrics} =
-             MikrotikCoreMetrics.execute(@host, @config,
+             MikrotikInventoryMetrics.execute(@host, @config,
                client: PeerFailureClient,
                password_provider: fn _ -> "vault-secret" end
              )
@@ -157,11 +171,14 @@ defmodule TimelessUI.Poller.Collectors.MikrotikCoreMetricsTest do
   end
 
   test "missing secret and inline secret are rejected" do
+    assert {:error, "password_env must name an environment variable"} =
+             MikrotikRestCollector.validate_config(Map.delete(@config, "password_env"))
+
     assert {:error, _} =
-             MikrotikCoreMetrics.validate_config(Map.put(@config, "password", "secret"))
+             MikrotikInventoryMetrics.validate_config(Map.put(@config, "password", "secret"))
 
     assert {:ok, metrics} =
-             MikrotikCoreMetrics.execute(@host, @config,
+             MikrotikInventoryMetrics.execute(@host, @config,
                client: Client,
                password_provider: fn _ -> nil end
              )
@@ -172,7 +189,7 @@ defmodule TimelessUI.Poller.Collectors.MikrotikCoreMetricsTest do
 
   test "malformed tunnel data is reported as a failed collection" do
     assert {:ok, metrics} =
-             MikrotikCoreMetrics.execute(@host, @config,
+             MikrotikInventoryMetrics.execute(@host, @config,
                client: MalformedClient,
                password_provider: fn _ -> "vault-secret" end
              )
