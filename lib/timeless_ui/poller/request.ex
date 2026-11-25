@@ -2,7 +2,7 @@ defmodule TimelessUI.Poller.Request do
   use Ecto.Schema
   import Ecto.Changeset
 
-  @valid_types ~w(icmp_ping prometheus snmpget snmpwalk snmpbulkwalk mikrotik_rest)
+  @valid_types ~w(icmp_ping prometheus http_health snmpget snmpwalk snmpbulkwalk mikrotik_rest)
 
   schema "poller_requests" do
     field :name, :string

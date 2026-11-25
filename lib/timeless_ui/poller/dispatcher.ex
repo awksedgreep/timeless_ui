@@ -14,6 +14,7 @@ defmodule TimelessUI.Poller.Dispatcher do
 
   alias TimelessUI.Poller.Collectors.{
     IcmpCollector,
+    HttpHealthCollector,
     PrometheusCollector,
     MikrotikRestCollector,
     SnmpCollector
@@ -264,6 +265,7 @@ defmodule TimelessUI.Poller.Dispatcher do
 
   defp collector_for_type("icmp_ping"), do: IcmpCollector
   defp collector_for_type("prometheus"), do: PrometheusCollector
+  defp collector_for_type("http_health"), do: HttpHealthCollector
   defp collector_for_type("mikrotik_rest"), do: MikrotikRestCollector
   defp collector_for_type(type) when type in ~w(snmpget snmpwalk snmpbulkwalk), do: SnmpCollector
 
