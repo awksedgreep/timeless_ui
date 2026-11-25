@@ -15,6 +15,7 @@ defmodule TimelessUI.Poller.Collectors.HttpHealthCollectorTest do
     fetcher = fn url, opts ->
       assert url == "http://192.168.160.220:4000/health/ready"
       assert opts[:redirect] == false
+      assert opts[:retry] == false
       {:ok, %{status: 200}}
     end
 
@@ -59,6 +60,8 @@ defmodule TimelessUI.Poller.Collectors.HttpHealthCollectorTest do
 
       assert opts[:connect_options][:transport_opts] ==
                [cacertfile: "/etc/pmon-caddy-roots.pem"]
+
+      assert opts[:retry] == false
 
       {:ok, %{status: 503}}
     end

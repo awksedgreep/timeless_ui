@@ -72,6 +72,7 @@ defmodule TimelessUI.Poller.Collectors.HttpHealthCollector do
     result =
       fetcher.(url,
         redirect: false,
+        retry: false,
         connect_options: connect_options,
         receive_timeout: 5_000
       )
