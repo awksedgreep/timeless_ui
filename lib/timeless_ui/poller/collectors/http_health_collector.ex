@@ -18,6 +18,7 @@ defmodule TimelessUI.Poller.Collectors.HttpHealthCollector do
     kind = value(config, "kind", "health")
     expected = value(config, "expected_status", 200)
     scheme = value(config, "scheme", "http")
+    ca_file = value(config, "ca_file")
 
     cond do
       not is_binary(path) or not String.starts_with?(path, "/") ->
@@ -31,6 +32,10 @@ defmodule TimelessUI.Poller.Collectors.HttpHealthCollector do
 
       scheme not in ["http", "https"] ->
         {:error, "scheme must be http or https"}
+
+      ca_file != nil and
+          (not is_binary(ca_file) or not String.starts_with?(ca_file, "/")) ->
+        {:error, "ca_file must be an absolute path"}
 
       not is_integer(expected) or expected < 100 or expected > 599 ->
         {:error, "expected_status must be an HTTP status"}
@@ -54,13 +59,20 @@ defmodule TimelessUI.Poller.Collectors.HttpHealthCollector do
     scheme = value(config, "scheme", "http")
     url = "#{scheme}://#{host.ip || host.name}:#{value(config, "port")}#{value(config, "path")}"
     fetcher = Keyword.get(opts, :fetcher, &Req.get/2)
+    ca_file = value(config, "ca_file")
+
+    connect_options =
+      if ca_file,
+        do: [timeout: 5_000, transport_opts: [cacertfile: ca_file]],
+        else: [timeout: 5_000]
+
     now = System.monotonic_time(:millisecond)
     ts = System.system_time(:second)
 
     result =
       fetcher.(url,
         redirect: false,
-        connect_options: [timeout: 5_000],
+        connect_options: connect_options,
         receive_timeout: 5_000
       )
 

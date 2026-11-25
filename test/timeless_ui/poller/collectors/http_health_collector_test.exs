@@ -48,5 +48,24 @@ defmodule TimelessUI.Poller.Collectors.HttpHealthCollectorTest do
     assert {:error, _} = HttpHealthCollector.validate_config(Map.put(@config, "scheme", "file"))
   end
 
+  test "uses the pinned internal CA for an HTTPS health probe" do
+    config =
+      @config
+      |> Map.put("scheme", "https")
+      |> Map.put("ca_file", "/etc/pmon-caddy-roots.pem")
+
+    fetcher = fn url, opts ->
+      assert url == "https://192.168.160.220:4000/health/ready"
+
+      assert opts[:connect_options][:transport_opts] ==
+               [cacertfile: "/etc/pmon-caddy-roots.pem"]
+
+      {:ok, %{status: 503}}
+    end
+
+    assert {:ok, metrics} = HttpHealthCollector.execute(@host, nil, config, fetcher: fetcher)
+    assert metric_value(metrics, "http_probe_status_code") == 503
+  end
+
   defp metric_value(metrics, name), do: Enum.find(metrics, &(&1.name == name)).val
 end
