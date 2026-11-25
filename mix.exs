@@ -75,6 +75,7 @@ defmodule TimelessUI.MixProject do
       {:crontab, "~> 1.1"},
       {:raw_ping, "~> 0.3.1"},
       {:req, "~> 0.5"},
+      {:mikrotik_api, "~> 0.3.4"},
       {:snmpkit, "~> 2.0"}
     ]
   end

@@ -5,6 +5,10 @@ defmodule TimelessUI.Poller.Collectors.MikrotikRestCollector do
   Collects metrics from MikroTik routers using the REST API available
   in RouterOS v7 and later.
 
+  The `core_chr` profile uses the shared `MikrotikApi` library, discovers every
+  CHR tunnel/peer, and reads its credential from `password_env`. The older
+  generic endpoint profile below remains available for existing requests.
+
   ## Per-request configuration (in request.config)
 
       %{
@@ -23,10 +27,15 @@ defmodule TimelessUI.Poller.Collectors.MikrotikRestCollector do
 
   require Logger
 
+  alias TimelessUI.Poller.Collectors.MikrotikCoreMetrics
+
   @impl true
   def init(_config), do: :ok
 
   @impl true
+  def validate_config(%{"profile" => "core_chr"} = config),
+    do: MikrotikCoreMetrics.validate_config(config)
+
   def validate_config(config) when is_map(config) do
     cond do
       !Map.has_key?(config, "username") and !Map.has_key?(config, :username) ->
@@ -52,7 +61,12 @@ defmodule TimelessUI.Poller.Collectors.MikrotikRestCollector do
   def validate_config(_), do: {:error, "config must be a map"}
 
   @impl true
-  def execute(host, _request, config, opts \\ []) do
+  def execute(host, request, config, opts \\ [])
+
+  def execute(host, _request, %{"profile" => "core_chr"} = config, opts),
+    do: MikrotikCoreMetrics.execute(host, config, opts)
+
+  def execute(host, _request, config, opts) do
     timeout = Keyword.get(opts, :mikrotik_timeout_ms, 5_000)
     ts = System.system_time(:second)
 

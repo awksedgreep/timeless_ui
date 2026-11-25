@@ -71,6 +71,31 @@ Without raw socket permissions, ICMP pings will fail and log warnings, but the r
 
 The scheduler ticks every minute, evaluates cron expressions, resolves host x request combinations, and enqueues jobs to a bounded-concurrency dispatcher. Samples go through the configured metrics writer — embedded TimelessMetrics by default; the Stack routes them to the Rust metrics data plane.
 
+### Core CHR monitoring profile
+
+For the two production CHRs, create poller hosts with their stable pod LAN
+addresses and a shared tag such as `core_chr`. Create one `mikrotik_rest`
+request with the same request tag and this config:
+
+```json
+{"profile":"core_chr","username":"pmon","password_env":"PMON_ROUTEROS_PASSWORD","port":80,"ssl":false}
+```
+
+The password must be in the release environment, not the poller database. A
+schedule tagged for the two hosts and this request activates collection. The
+profile uses `MikrotikApi` to read system resources/health, all interfaces,
+GRE and WireGuard interfaces, WireGuard peers, and VRRP. It records per-tunnel
+running/enabled state, interface traffic/error counters, per-peer traffic and
+handshake age, and which CHR owns each VRRP instance. The profile emits
+`routeros_up` and `routeros_collection_success{resource=...}` so an API failure
+cannot look like zero tunnels. RouterOS CHR hardware sensors report `disabled`
+on this virtual platform; `routeros_health_sensor_enabled=0` is informational,
+not a router-down signal. The standby CHR intentionally has inactive tunnels
+and no fresh handshakes, so tunnel and peer alerts must be role-aware.
+
+The production account and password are owned by ddinfra's production
+`users.yml` and vault. The generic `mikrotik_rest` request profile is unchanged.
+
 ## Configuration
 
 | Key | Default | Description |
